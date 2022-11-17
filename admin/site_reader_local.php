@@ -71,7 +71,7 @@ function get_elements($path)
   {
     while (($node = readdir($contents)) !== false)
     {
-      if ($node == '.' or $node == '..') continue;
+      if ($node[0] == '.') continue;
 
       if (is_file($path.'/'.$node))
       {
