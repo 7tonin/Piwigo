@@ -1,6 +1,9 @@
 {combine_script id='common' load='footer' path='admin/themes/default/js/common.js'}
 
 {footer_script}
+$(document).ready(() => {
+  $("h1").append("<span class='badge-number'>"+{$nb_cats}+"</span>");
+});
 var data = {json_encode($data_cat)};
 /* 
   Here data is an associative array id => category under this form 
@@ -12,11 +15,17 @@ var data = {json_encode($data_cat)};
 // Numeric array of all categories
 var categories = Object.values(data);
 
+const RESULT_LIMIT = 100;
+
 var str_albums_found = '{"<b>%d</b> albums found"|translate}';
 var str_album_found = '{"<b>1</b> album found"|translate}';
+var str_result_limit = '{"<b>%d+</b> albums found, try to refine the search"|translate|escape:javascript}';
+
 {literal}
 var editLink = "admin.php?page=album-";
 var colors = ["icon-red", "icon-blue", "icon-yellow", "icon-purple", "icon-green"];
+
+$(".limit-album-reached").hide();
 
 $('.search-input').on('input', () => {
   updateSearch();
@@ -27,6 +36,7 @@ function updateSearch () {
   string = $('.search-input').val();
   $('.search-album-result').html("");
   $('.search-album-noresult').hide();
+  $(".limit-album-reached").hide();
   if (string == '') {
     // help button unnecessary so do not show
     // $('.search-album-help').show();
@@ -39,14 +49,18 @@ function updateSearch () {
 
     nbResult = 0;
     categories.forEach((c) => {
-      if (c[0].toString().toLowerCase().search(string.toLowerCase()) != -1) {
-        addAlbumResult(c);
+      if (c[0].toString().toLowerCase().search(string.toLowerCase()) != -1 && nbResult < RESULT_LIMIT) {
         nbResult++;
+        addAlbumResult(c, nbResult);
       }
     })
 
     if (nbResult != 1) {
-      $('.search-album-num-result').html(str_albums_found.replace('%d', nbResult));
+      if (nbResult >= RESULT_LIMIT) {
+        $('.search-album-num-result').html(str_result_limit.replace('%d', nbResult));
+      } else {
+        $('.search-album-num-result').html(str_albums_found.replace('%d', nbResult));
+      }
     } else {
       $('.search-album-num-result').html(str_album_found);
     }
@@ -60,7 +74,7 @@ function updateSearch () {
 }
 
 // Add an album as a result in the page
-function addAlbumResult (cat) {
+function addAlbumResult (cat, nbResult) {
   id = cat[1][cat[1].length - 1];
   template = $('.search-album-elem-template').html();
   newCatNode = $(template);
@@ -89,37 +103,33 @@ function addAlbumResult (cat) {
   newCatNode.find('.search-album-edit').attr('href', href);
 
   $('.search-album-result').append(newCatNode);
+
+  if(nbResult >= RESULT_LIMIT) {
+    $(".limit-album-reached").show(1000);
+    $('.limit-album-reached').html(str_result_limit.replace('%d', nbResult));
+  }
 }
 
 // Get the path "PARENT / parent / album" with link to the edition of all albums
 function getHtmlPath (cat) {
   html = '';
   for (let i = 0; i < cat[1].length - 1; i++) {
-    id = cat[1][i];
-    c = data[id];
-    html += '<a href="' + editLink + id + '">' + c[0] + '</a> <b>/</b> '
+    id_bis = cat[1][i];
+    c = data[id_bis];
+    html += '<a href="' + editLink + id_bis + '">' + c[0] + '</a> <b>/</b> '
   }
   html += '<a href="' + editLink + cat[1][cat[1].length - 1] + '">' + cat[0] + '</a>';
 
   return html
 }
 
-// Make the results appear one after one
+// Make the results appear one after one [and limit results to 100]
 function resultAppear(result) {
   result.fadeIn();
   if (result.next().length != 0) {
     setTimeout(() => {resultAppear(result.next().first())}, 50);
   }
 }
-
-function prepare_skeleton() {
-  while (!($(document).height() > $(window).height())) {
-    $(".search-album-ghost").append("<div></div>");
-  }
-  $(".search-album-ghost div:last").remove();
-};
-
-prepare_skeleton();
 
 updateSearch();
 $('.search-input').focus();
@@ -132,7 +142,7 @@ $('.search-input').focus();
     <div class="search-album-input-container" style="position:relative">
       <span class="icon-search search-icon"></span>
       <span class="icon-cancel search-cancel"></span>
-      <input class='search-input' type="text" placeholder="{'Portraits'|@translate}">
+      <input class='search-input' type="text" placeholder="{$placeholder|escape:html}">
     </div>
     <span class="search-album-help icon-help-circled" title="{'Enter a term to search for album'|@translate}"></span>
     <span class="search-album-num-result"></span>
@@ -140,9 +150,7 @@ $('.search-input').focus();
 </div>
 
 <div class="search-album-ghost">
-  <div></div>
-  <div></div>
-  <div></div>
+  <span>{'No research in progress'|@translate}</span>
 </div>
 
 <div class="search-album-elem-template" style="display:none">
@@ -160,8 +168,17 @@ $('.search-input').focus();
 <div class="search-album-result">
 
 </div>
+<div class="search-album-elem limit-album-reached"></div>
 
 <div class="search-album-noresult">
   {'No albums found'|translate}
 </div>
+
+<style>
+.limit-album-reached {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+</style>
 

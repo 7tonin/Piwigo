@@ -14,6 +14,7 @@ $template->assign(
     array(
       'F_ADD_ACTION'=> PHOTOS_ADD_BASE_URL,
       'chunk_size' => $conf['upload_form_chunk_size'],
+      'max_file_size' => $conf['upload_form_max_file_size'],
       'ADMIN_PAGE_TITLE' => l10n('Upload Photos'),
     )
   );
@@ -100,9 +101,6 @@ SELECT id, uppercats
   if (pwg_db_num_rows($result) == 1)
   {
     $selected_category = array($_GET['album']);
-    
-    // lets put in the session to persist in case of upload method switch
-    $_SESSION['selected_category'] = $selected_category;
 
     $cat = pwg_db_fetch_assoc($result);
     $template->assign('ADD_TO_ALBUM', get_cat_display_name_cache($cat['uppercats'], null));
@@ -111,10 +109,6 @@ SELECT id, uppercats
   {
     fatal_error('[Hacking attempt] the album id = "'.$_GET['album'].'" is not valid');
   }
-}
-else if (isset($_SESSION['selected_category']))
-{
-  $selected_category = $_SESSION['selected_category'];
 }
 else
 {
@@ -191,7 +185,7 @@ if (!isset($_SESSION['upload_hide_warnings']))
 {
   $setup_warnings = array();
   
-  if ($conf['use_exif'] and !function_exists('read_exif_data'))
+  if ($conf['use_exif'] and !function_exists('exif_read_data'))
   {
     $setup_warnings[] = l10n('Exif extension not available, admin should disable exif use');
   }

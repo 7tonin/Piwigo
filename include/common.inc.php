@@ -17,7 +17,11 @@ $t2 = microtime(true);
 // addslashes to vars if magic_quotes_gpc is off this is a security
 // precaution to prevent someone trying to break out of a SQL statement.
 //
-if( !@get_magic_quotes_gpc() )
+// The magic quote feature has been disabled since php 5.4
+// but function get_magic_quotes_gpc was always replying false.
+// Since php 8 the function get_magic_quotes_gpc is also removed
+// but we stil want to sanitize user input variables.
+if(!function_exists('get_magic_quotes_gpc') or !@get_magic_quotes_gpc() )
 {
   function sanitize_mysql_kv(&$v, $k)
   {
@@ -51,6 +55,8 @@ $page = array(
   'errors' => array(),
   'warnings' => array(),
   'messages' => array(),
+  'body_classes' => array(),
+  'body_data' => array(),
   );
 $user = array();
 $lang = array();
@@ -85,7 +91,10 @@ include(PHPWG_ROOT_PATH .'include/dblayer/functions_'.$conf['dblayer'].'.inc.php
 if(isset($conf['show_php_errors']) && !empty($conf['show_php_errors']))
 {
   @ini_set('error_reporting', $conf['show_php_errors']);
-  @ini_set('display_errors', true);
+  if($conf['show_php_errors_on_frontend'])
+  {
+    @ini_set('display_errors', true);
+  }
 }
 
 if ($conf['session_gc_probability'] > 0)
@@ -141,6 +150,19 @@ ImageStdParams::load_from_db();
 session_start();
 load_plugins();
 
+// 2022-02-25 due to escape on "rank" (becoming a mysql keyword in version 8), the $conf['order_by'] might
+// use a "rank", even if admin/configuration.php should have removed it. We must remove it.
+// TODO remove this data update as soon as 2025 arrives
+if (preg_match('/(, )?`rank` ASC/', $conf['order_by']))
+{
+  $order_by = preg_replace('/(, )?`rank` ASC/', '', $conf['order_by']);
+  if ('ORDER BY ' == $order_by)
+  {
+    $order_by = 'ORDER BY id ASC';
+  }
+  conf_update_param('order_by', $order_by, true);
+}
+
 // users can have defined a custom order pattern, incompatible with GUI form
 if (isset($conf['order_by_custom']))
 {
@@ -150,6 +172,8 @@ if (isset($conf['order_by_inside_category_custom']))
 {
   $conf['order_by_inside_category'] = $conf['order_by_inside_category_custom'];
 }
+
+check_lounge();
 
 include(PHPWG_ROOT_PATH.'include/user.inc.php');
 
@@ -206,7 +230,7 @@ if (isset($page['auth_key_invalid']) and $page['auth_key_invalid'])
 // template instance
 if (defined('IN_ADMIN') and IN_ADMIN )
 {// Admin template
-  $template = new Template(PHPWG_ROOT_PATH.'admin/themes', $conf['admin_theme']);
+  $template = new Template(PHPWG_ROOT_PATH.'admin/themes', userprefs_get_param('admin_theme', 'clear'));
 }
 else
 { // Classic template

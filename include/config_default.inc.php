@@ -45,7 +45,7 @@ $conf['picture_ext'] = array('jpg','jpeg','png','gif');
 // file_ext : file extensions (case sensitive) authorized
 $conf['file_ext'] = array_merge(
   $conf['picture_ext'],
-  array('tiff', 'tif', 'mpg','zip','avi','mp3','ogg','pdf')
+  array('tiff', 'tif', 'mpg','zip','avi','mp3','ogg','pdf','svg')
   );
 
 // enable_formats: should Piwigo search for multiple formats?
@@ -97,6 +97,9 @@ $conf['newcat_default_status'] = 'public';
 
 // newcat_default_position : at creation, should the album appear at the first or last position ?
 $conf['newcat_default_position'] = 'first';
+
+// above which number of albums should Piwigo use the lighter album manager
+$conf['light_album_manager_threshold'] = 10000;
 
 // level_separator : character string used for separating a category level
 // to the sub level. Suggestions : ' / ', ' &raquo; ', ' &rarr; ', ' - ',
@@ -274,6 +277,9 @@ $conf['album_description_on_all_pages'] = false;
 // Number of years displayed in the history compare mode (for the years chart)
 $conf['stat_compare_year_displayed'] = 5;
 
+// Limit for linked albums search
+$conf['linked_album_search_limit'] = 100;
+
 // +-----------------------------------------------------------------------+
 // |                                 email                                 |
 // +-----------------------------------------------------------------------+
@@ -433,6 +439,17 @@ $conf['session_gc_probability'] = 1;
 // |                            debug/performance                          |
 // +-----------------------------------------------------------------------+
 
+// number of photos beyond which individual photos are added in the
+// lounge, a temporary zone where photos wait before being "launched".
+// 50k photos by default.
+$conf['lounge_activate_threshold'] = 1;
+
+// Lounge is automatically emptied (photos are being pushed to their
+// albums) when the oldest one reaches this duration. Lounge can be emptied
+// before, either manually or at the end of the upload. In seconds.
+// 5 minutes by default.
+$conf['lounge_max_duration'] = 5*60;
+
 // show_queries : for debug purpose, show queries and execution times
 $conf['show_queries'] = false;
 
@@ -475,6 +492,13 @@ $conf['template_combine_files'] = true;
 // for possible values)
 // gives an empty value '' to deactivate
 $conf['show_php_errors'] = E_ALL;
+
+// This sets the display_errors php option to true, so php errors and warning
+// messages are shown in the browser. If this is false, the error messages are 
+// available in the php log of the server if show_php_errors has any set.
+// If the below is turned off in local config and errors are still shown on 
+// frontend, check for display_errors setting server's php config
+$conf['show_php_errors_on_frontend'] = true;
 
 
 // +-----------------------------------------------------------------------+
@@ -644,6 +668,19 @@ $conf['tags_default_display_mode'] = 'cloud';
 $conf['tag_letters_column_number'] = 4;
 
 // +-----------------------------------------------------------------------+
+// | Related albums                                                        |
+// +-----------------------------------------------------------------------+
+
+// beyond this limit, do not try to find related albums. If there are too
+// many items, the SQL query will be slow and the results irrelevant,
+// because showing too many related albums.
+$conf['related_albums_maximum_items_to_compute'] = 1000;
+
+// once found the related albums, how many to show in the menubar? We take
+// the heaviest (with more relations).
+$conf['related_albums_display_limit'] = 20;
+
+// +-----------------------------------------------------------------------+
 // | Notification by mail                                                  |
 // +-----------------------------------------------------------------------+
 
@@ -696,8 +733,27 @@ $conf['ws_max_users_per_page'] = 1000;
 // Display a link to subscribe to Piwigo Announcements Newsletter
 $conf['show_newsletter_subscription'] = true;
 
+// Fetch and show latest news from piwigo.org
+$conf['show_piwigo_latest_news'] = true;
+
+// Check for available updates on Piwigo or extensions, performed each time
+// the dashboard is displayed
+$conf['dashboard_check_for_updates'] = true;
+
 // Number Weeks displayed on activity chart on the dashboard
 $conf['dashboard_activity_nb_weeks'] = 4;
+
+// On album mover page, number of seconds before auto openning album when
+// dragging an album. In milliseconds. 3 seconds by default.
+$conf['album_move_delay_before_auto_opening'] = 3*1000;
+
+// This variable is used to show or hide the template tab in the side menu
+$conf['show_template_in_side_menu'] = false;
+
+// Add last calculated cache size to Dashboard Storage chart if true.
+// To recalculate use Tools -> Maintenance, Refresh.
+// To disable, set to false.
+$conf['add_cache_to_storage_chart'] = true;
 
 // +-----------------------------------------------------------------------+
 // | Filter                                                                |
@@ -778,7 +834,40 @@ $conf['themes_dir'] = PHPWG_ROOT_PATH.'themes';
 // enable the synchronization method for adding photos
 $conf['enable_synchronization'] = true;
 
-// permitted characters for files/directories during synchronization
+// Permitted characters for files/directories during synchronization.
+// Do not add the ' U+0027 single quote apostrophe character, it WILL make some
+// SQL queries fail. URI reserved characters (see
+// https://tools.ietf.org/html/rfc3986#section-2.2 ) MAY make things fail, this
+// is known for example for the & character leading to a query parameter
+// separator if the resulting URI path is not urlencoded. Adding accented
+// characters or characters of Unicode letter or digit classes in the basic
+// plane *usually* are fine iff the file system's names *and* the config file
+// content are both UTF-8 encoded, as is the MySQL database table, and the file
+// system does not use decomposed Unicode characters for accented characters.
+//
+// Possible expressions could be:
+// * Just add the space character:
+//   $conf['sync_chars_regex'] = '/^[a-zA-Z0-9-_. ]+$/';
+// * Add space character and German umlauts and sharp s (sz) (note this is
+//   UTF-8 encoded, if you see "odd" sequences then the encoding in your viewer
+//   or editor is wrong, and maybe your file system is as well), and
+//   parentheses and brackets; also note the trailing 'u' regex option to have
+//   PHP interpret the expression as UTF-8 string instead of ASCII:
+//   $conf['sync_chars_regex'] = '/^[a-zA-Z0-9-_. äÄöÖüÜßẞ()\[\]]+$/u';
+// * Allow all Unicode letter and numeric and whitespace characters (largely
+//   encoding independent but still might have quirks with file system's file
+//   name encoding) and parentheses and brackets; again with the 'u' regex
+//   option to let PHP match Unicode characters and properties:
+//   $conf['sync_chars_regex'] = '/^[-_.\p{L}\p{N}\p{Z}()\[\]]+$/u';
+// You may try your expression at https://regex101.com/ choosing the
+// PCRE2 (PHP >=7.3) flavor.
+// See also:
+// https://www.regular-expressions.info/unicode.html
+// https://www.regular-expressions.info/php.html#preg
+// https://www.php.net/manual/en/pcre.pattern.php
+//
+// The default expression is restrictive but safe and sane ASCII only
+// alphanumeric and hyphen-minus and underscore and dot.
 $conf['sync_chars_regex'] = '/^[a-zA-Z0-9-_.]+$/';
 
 // folders name excluded during synchronization
@@ -833,6 +922,9 @@ $conf['upload_form_all_types'] = false;
 // Size of chunks, in kilobytes. Fast connections will have better
 // performances with high values, such as 5000.
 $conf['upload_form_chunk_size'] = 500;
+
+// Maximum size for a file in the upload form, in megabytes.
+$conf['upload_form_max_file_size'] = 1000;
 
 // If we try to generate a pwg_representative for a video we use ffmpeg. If
 // "ffmpeg" is not visible by the web user, you can define the full path of

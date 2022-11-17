@@ -303,7 +303,7 @@ jQuery('#applyAction').click(function(e) {
           type:"POST",
           dataType: "json",
           data: {
-            pwg_token: jQuery("input[name=pwg_token").val(),
+            pwg_token: jQuery("input[name=pwg_token]").val(),
             image_id: ids
           },
           success: function(data) {
@@ -433,7 +433,7 @@ function progress_bar(val, max, success) {
 }
 
 jQuery("#confirmDel input[name=confirm_deletion]").change(function() {
-  jQuery("#confirmDel span.errors").css("visiblity", "hidden");
+  jQuery("#confirmDel span.errors").css("visibility", "hidden");
 });
 
 jQuery('#sync_md5sum').click(function(e) {
@@ -455,7 +455,7 @@ function add_md5sum_block(blockSize){
     type:"POST",
     dataType: "json",
     data: {
-      pwg_token: jQuery("input[name=pwg_token").val(),
+      pwg_token: jQuery("input[name=pwg_token]").val(),
       block_size: blockSize
     },
     success:function(data) {
@@ -505,7 +505,7 @@ function delete_orphans_block(blockSize) {
     type:"POST",
     dataType: "json",
     data: {
-      pwg_token: jQuery("input[name=pwg_token").val(),
+      pwg_token: jQuery("input[name=pwg_token]").val(),
       block_size: blockSize
     },
     success:function(data) {
