@@ -105,6 +105,7 @@ if (isset($_GET['quick_sync']))
 $general_failure = true;
 if (isset($_POST['submit']))
 {
+
   if ($site_reader->open())
   {
     $general_failure = false;
@@ -528,10 +529,10 @@ SELECT id, path
 
     $insert = array(
       'id'             => $next_element_id++,
-      'file'           => $filename,
-      'name'           => get_name_from_file($filename),
+      'file'           => pwg_db_real_escape_string($filename),
+      'name'           => pwg_db_real_escape_string(get_name_from_file($filename)),
       'date_available' => CURRENT_DATE,
-      'path'           => $path,
+      'path'           => pwg_db_real_escape_string($path),
       'representative_ext'  => $fs[$path]['representative_ext'],
       'storage_category_id' => $db_fulldirs[$dirname],
       'added_by'       => $user['id'],
@@ -956,6 +957,7 @@ $template->assign(
     'L_RESULT_METADATA'=>$result_title.l10n('Metadata synchronization results'),
     'METADATA_LIST' => $used_metadata,
     'U_HELP' => get_root_url().'admin/popuphelp.php?page=synchronize',
+    'ADMIN_PAGE_TITLE' => l10n('Synchronize'),
     ));
 
 // +-----------------------------------------------------------------------+

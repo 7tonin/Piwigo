@@ -19,6 +19,7 @@ CREATE TABLE `piwigo_activity` (
   `ip_address` varchar(50) DEFAULT NULL,
   `occured_on` TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   `details` varchar(255) DEFAULT NULL,
+  `user_agent` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`activity_id`)
 ) ENGINE=MyISAM;
 
@@ -261,6 +262,17 @@ CREATE TABLE `piwigo_languages` (
 ) ENGINE=MyISAM;
 
 --
+-- Table structure for table `piwigo_lounge`
+--
+
+DROP TABLE IF EXISTS `piwigo_lounge`;
+CREATE TABLE `piwigo_lounge` (
+  `image_id` mediumint(8) unsigned NOT NULL DEFAULT '0',
+  `category_id` smallint(5) unsigned NOT NULL DEFAULT '0',
+  PRIMARY KEY (`image_id`,`category_id`)
+) ENGINE=MyISAM;
+
+--
 -- Table structure for table `piwigo_old_permalinks`
 --
 
@@ -484,6 +496,7 @@ CREATE TABLE `piwigo_user_infos` (
   `last_visit` datetime default NULL,
   `last_visit_from_history` enum('true','false') NOT NULL default 'false',
   `lastmodified` TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  `preferences` TEXT default NULL,
   PRIMARY KEY (`user_id`),
   KEY `lastmodified` (`lastmodified`)
 ) ENGINE=MyISAM;

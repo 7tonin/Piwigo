@@ -154,8 +154,9 @@ $template->assign(
     'NB_RATES' => $nb_rates,
     'NB_VIEWS' => number_format_human_readable($nb_views),
     'NB_PLUGINS' => count($pwg_loaded_plugins),
-    'STORAGE_USED' => l10n('%sGB', number_format($du_gb, $du_decimals)),
+    'STORAGE_USED' => str_replace(' ', '&nbsp;', l10n('%sGB', number_format($du_gb, $du_decimals))),
     'U_QUICK_SYNC' => PHPWG_ROOT_PATH.'admin.php?page=site_update&amp;site=1&amp;quick_sync=1&amp;pwg_token='.get_pwg_token(),
+    'CHECK_FOR_UPDATES' => $conf['dashboard_check_for_updates'],
     )
   );
 
@@ -167,22 +168,28 @@ SELECT COUNT(*)
 ;';
   list($nb_comments) = pwg_db_fetch_row(pwg_query($query));
   $template->assign('NB_COMMENTS', $nb_comments);
+} else {
+  $template->assign('NB_COMMENTS', 0);
 }
 
-if ($nb_photos > 0)
+if ($conf['show_piwigo_latest_news'])
 {
-  $query = '
-SELECT MIN(date_available)
-  FROM '.IMAGES_TABLE.'
-;';
-  list($first_date) = pwg_db_fetch_row(pwg_query($query));
+  $news = get_piwigo_news(0, 1);
 
-  $template->assign(
-    array(
-      'first_added_date' => format_date($first_date),
-      'first_added_age' => time_since($first_date, 'year', null, false, false),
-      )
+  // echo '<pre>'; print_r($news); echo '</pre>';
+
+  if (isset($news['topics']) and isset($news['topics'][0]) and $news['topics'][0]['posted_on'] > time()-60*60*24*30)
+  {
+    $latest_news = $news['topics'][0];
+
+    $page['messages'][] = sprintf(
+      '%s <a href="%s" title="%s" target="_blank"><i class="icon-bell"></i> %s</a>',
+      l10n('Latest Piwigo news'),
+      $latest_news['url'],
+      time_since($latest_news['posted_on'], 'year').' ('.$latest_news['posted'].')',
+      $latest_news['subject']
     );
+  }
 }
 
 trigger_notify('loc_end_intro');
@@ -220,6 +227,8 @@ $date_string = $date->format('Y-m-d');
 
 if (!isset($_SESSION['cache_activity_last_weeks']) or $_SESSION['cache_activity_last_weeks']['calculated_on'] < strtotime('5 minutes ago'))
 {
+  $start_time = get_moment();
+
   $query = '
   SELECT
       DATE_FORMAT(occured_on , \'%Y-%m-%d\') AS activity_day,
@@ -234,7 +243,8 @@ if (!isset($_SESSION['cache_activity_last_weeks']) or $_SESSION['cache_activity_
 
   foreach ($activity_actions as $action)
   {
-    $day_date = new DateTime($action['activity_day']);
+    // set the time to 12:00 (midday) so that it doesn't goes to previous/next day due to timezone offset
+    $day_date = new DateTime($action['activity_day'].' 12:00:00');
 
     $week = 0;
     for ($i=0; $i < $nb_weeks; $i++)
@@ -250,6 +260,8 @@ if (!isset($_SESSION['cache_activity_last_weeks']) or $_SESSION['cache_activity_
     @$activity_last_weeks[$week][$day_nb]['number'] += $action['activity_counter'];
     @$activity_last_weeks[$week][$day_nb]['date'] = format_date($day_date->getTimestamp());
   }
+
+  $logger->debug('[admin/intro::'.__LINE__.'] recent activity calculated in '.get_elapsed_time($start_time, get_moment()));
 
   $_SESSION['cache_activity_last_weeks'] = array(
     'calculated_on' => time(),
@@ -357,43 +369,51 @@ $template->assign('DAY_LABELS', $day_labels);
 
 $video_format = array('webm','webmv','ogg','ogv','mp4','m4v');
 $data_storage = array();
+$file_extensions_of = array();
 
 //Select files in Image_Table
 $query = '
-SELECT file, filesize
+SELECT
+  COUNT(*) AS ext_counter,
+   SUBSTRING_INDEX(path,".",-1) AS ext,
+   SUM(filesize) AS filesize
   FROM `'.IMAGES_TABLE.'`
+  GROUP BY ext
 ;';
 
-$result = query2array($query, null);
+$file_extensions = query2array($query, 'ext');
 
-foreach ($result as $file) 
+foreach ($file_extensions as $ext => $ext_details)
 {
-  $tabString = explode('.',$file['file']);
-  $ext = $tabString[count($tabString) -1];
-  $size = $file['filesize'];
-  if (in_array($ext, $conf['picture_ext'])) 
+  $type = null;
+  if (in_array(strtolower($ext), $conf['picture_ext']))
   {
-    if (isset($data_storage['Photos'])) 
-    {
-      $data_storage['Photos'] += $size;
-    } else {
-      $data_storage['Photos'] = $size;
-    }
-  } elseif (in_array($ext, $video_format)) {
-    if (isset($data_storage['Videos'])) 
-    {
-      $data_storage['Videos'] += $size;
-    } else {
-      $data_storage['Videos'] = $size;
-    }
-  } else {
-    if (isset($data_storage['Other']))
-    {
-      $data_storage['Other'] += $size;
-    } else {
-      $data_storage['Other'] = $size;
-    }
+    $type = 'Photos';
   }
+  elseif (in_array(strtolower($ext), $video_format))
+  {
+    $type = 'Videos';
+  }
+  else
+  {
+    $type = 'Other';
+  }
+
+  @$file_extensions_of[$type][strtoupper($ext)] = $ext_details['ext_counter'];
+  @$data_storage[$type] += $ext_details['filesize'];
+}
+
+$data_storage_details = array();
+
+foreach ($file_extensions_of as $type => $extensions)
+{
+  $details = array();
+
+  foreach ($extensions as $ext => $counter)
+  {
+    $details[] = $counter.'x'.$ext;
+  }
+  $data_storage_details[$type] = implode(', ', $details);
 }
 
 //Select files from format table
@@ -409,22 +429,17 @@ if (isset($result[0]['SUM(filesize)']))
   $data_storage['Formats'] = $result[0]['SUM(filesize)'];
 }
 
-// Windows can't execute get_fs_directory_size correctly
-if (strtoupper(substr(PHP_OS, 0, 3)) !== 'WIN')
+// Add cache size if requested and known.
+if ($conf['add_cache_to_storage_chart'] && isset($conf['cache_sizes']))
 {
-  if (!isset($_SESSION['cachedir_info']) or $_SESSION['cachedir_info']['calculated_on'] < strtotime('5 minutes ago'))
+  $cache_sizes = unserialize($conf['cache_sizes']);
+  if (isset($cache_sizes))
   {
-    $start_time = get_moment();
-
-    $_SESSION['cachedir_info'] = array(
-      'size' => get_fs_directory_size($conf['data_location']),
-      'calculated_on' => time(),
-    );
-
-    $logger->debug('[admin/intro::'.__LINE__.'] cache size calculated in '.get_elapsed_time($start_time, get_moment()).' ('.$_SESSION['cachedir_info']['size'].' bytes)');
- }
-
-  $data_storage['Cache'] = $_SESSION['cachedir_info']['size'] / 1000;
+    if (isset($cache_sizes[0]) && isset($cache_sizes[0]['value']))
+    {
+      $data_storage['Cache'] = $cache_sizes[0]['value']/1024;
+    }
+  }
 }
 
 //Calculate total storage
@@ -437,6 +452,7 @@ foreach ($data_storage as $value)
 //Pass data to HTML
 $template->assign('STORAGE_TOTAL',$total_storage);
 $template->assign('STORAGE_CHART_DATA',$data_storage);
+$template->assign('STORAGE_DETAILS', json_encode($data_storage_details));
 // +-----------------------------------------------------------------------+
 // |                           sending html code                           |
 // +-----------------------------------------------------------------------+

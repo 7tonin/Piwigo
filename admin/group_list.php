@@ -46,7 +46,7 @@ $template->set_filenames(array('group_list' => 'group_list.tpl'));
 $template->assign(
   array(
     'F_ADD_ACTION' => get_root_url().'admin.php?page=group_list',
-    'U_HELP' => get_root_url().'admin/popuphelp.php?page=group_list',
+    // 'U_HELP' => get_root_url().'admin/popuphelp.php?page=group_list',
     'PWG_TOKEN' => get_pwg_token(),
     'CACHE_KEYS' => get_admin_client_cache_keys(array('groups', 'users')),
     )
@@ -105,7 +105,7 @@ SELECT u.'. $conf['user_fields']['username'].' AS username
   $group_counter++;
 }
 
-$template->assign('ADMIN_PAGE_TITLE', l10n('Group management').' <span class="badge-number">'.$group_counter.'</span>');
+$template->assign('ADMIN_PAGE_TITLE', l10n('Groups').' <span class="badge-number">'.$group_counter.'</span>');
 
 // +-----------------------------------------------------------------------+
 // |                           sending html code                           |
