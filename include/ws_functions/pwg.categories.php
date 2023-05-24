@@ -116,6 +116,8 @@ SELECT SQL_CALC_FOUND_ROWS i.*
       $images[] = $image;
     }
 
+    list($total_images) = pwg_db_fetch_row(pwg_query('SELECT FOUND_ROWS()'));
+
     // let's take care of adding the related albums to each photo
     if (count($image_ids) > 0)
     {
@@ -188,8 +190,6 @@ SELECT
       }
     }
   }
-
-  list($total_images) = pwg_db_fetch_row(pwg_query('SELECT FOUND_ROWS()'));
 
   return array(
     'paging' => new PwgNamedStruct(
@@ -318,7 +318,7 @@ SELECT
     }
 
     $row['comment'] = strip_tags(
-      trigger_change(
+      (string) trigger_change(
         'render_category_description',
         $row['comment'],
         'ws_categories_getList'
@@ -648,7 +648,6 @@ function ws_categories_add($params, &$service)
     $options['comment'] = strip_tags($params['comment']);
   }
   
-  $params['name'] = pwg_db_real_escape_string($params['name']);
   $creation_output = create_virtual_category(
     strip_tags($params['name']), // TODO do not strip tags if pwg_token is provided (and valid)
     $params['parent'],
@@ -753,7 +752,11 @@ SELECT id
  * @param mixed[] $params
  *    @option int cat_id
  *    @option string name (optional)
+ *    @option string status (optional)
+ *    @option bool visible (optional)
  *    @option string comment (optional)
+ *    @option bool commentable (optional)
+ *    @option bool apply_commentable_to_subalbums (optional)
  */
 function ws_categories_setInfo($params, &$service)
 {
@@ -789,7 +792,21 @@ SELECT *
     'id' => $params['category_id'],
     );
 
-  $info_columns = array('name', 'comment',);
+  foreach (array('visible', 'commentable') as $param_name)
+  {
+    if (isset($params[$param_name]) and !preg_match('/^(true|false)$/i', $params[$param_name]))
+    {
+      return new PwgError(WS_ERR_INVALID_PARAM, 'Invalid param '.$param_name.' : '.$params[$param_name]);
+    }
+  }
+
+  if (!empty($params['visible']) and ($params['visible'] != $category['visible']))
+  {
+    include_once(PHPWG_ROOT_PATH.'admin/include/functions.php');
+    set_cat_visible(array($params['category_id']), $params['visible']);
+  }
+
+  $info_columns = array('name', 'comment','commentable');
 
   $perform_update = false;
   foreach ($info_columns as $key)
@@ -800,6 +817,20 @@ SELECT *
       // TODO do not strip tags if pwg_token is provided (and valid)
       $update[$key] = strip_tags($params[$key]);
     }
+  }
+
+  if (isset($params['commentable']) && isset($params['apply_commentable_to_subalbums']) && $params['apply_commentable_to_subalbums'])
+  {
+    $subcats = get_subcat_ids(array($params['category_id']));
+    if (count($subcats) > 0)
+    {
+      $query = '
+UPDATE '.CATEGORIES_TABLE.'
+  SET commentable = \''.$params['commentable'].'\'
+  WHERE id IN ('.implode(',', $subcats).')
+;';
+      pwg_query($query);
+    }  
   }
 
   if ($perform_update)
@@ -1147,6 +1178,22 @@ SELECT id, name, dir
   {
     return new PwgError(403, implode('; ', $page['errors']));
   }
+
+  $query = '
+  SELECT uppercats
+    FROM '. CATEGORIES_TABLE .'
+    WHERE id IN ('. implode(',', $category_ids) .')
+  ;';
+  $result = pwg_query($query);
+  while ($row = pwg_db_fetch_assoc($result))
+  {
+    $cat_display_name = get_cat_display_name_cache(
+      $row['uppercats'],
+      'admin.php?page=album-'
+    );
+  }
+
+  return array('new_ariane_string' => $cat_display_name);
 }
 
 /**

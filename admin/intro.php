@@ -27,7 +27,7 @@ check_status(ACCESS_ADMINISTRATOR);
 
 if (isset($_GET['action']) and 'hide_newsletter_subscription' == $_GET['action'])
 {
-  conf_update_param('show_newsletter_subscription', 'false', true);
+  userprefs_update_param('show_newsletter_subscription', 'false');
   exit();
 }
 
@@ -54,13 +54,34 @@ if (isset($page['nb_pending_comments']))
   $page['messages'][] = $message;
 }
 
+// any orphan photo?
+$nb_orphans = $page['nb_orphans']; // already calculated in admin.php
+
+if ($page['nb_photos_total'] >= 100000) // but has not been calculated on a big gallery, so force it now
+{
+  $nb_orphans = count(get_orphans());
+}
+
+if ($nb_orphans > 0)
+{
+  $orphans_url = PHPWG_ROOT_PATH.'admin.php?page=batch_manager&amp;filter=prefilter-no_album';
+
+  $message = '<a href="'.$orphans_url.'"><i class="icon-heart-broken"></i>';
+  $message.= l10n('Orphans').'</a>';
+  $message.= '<span class="adminMenubarCounter">'.$nb_orphans.'</span>';
+
+  $page['warnings'][] = $message;
+}
+
+fs_quick_check();
+
 // +-----------------------------------------------------------------------+
 // |                             template init                             |
 // +-----------------------------------------------------------------------+
 
 $template->set_filenames(array('intro' => 'intro.tpl'));
 
-if ($conf['show_newsletter_subscription']) {
+if ($conf['show_newsletter_subscription'] and userprefs_get_param('show_newsletter_subscription', true)) {
   $template->assign(
     array(
       'EMAIL' => $user['email'],
@@ -174,14 +195,10 @@ SELECT COUNT(*)
 
 if ($conf['show_piwigo_latest_news'])
 {
-  $news = get_piwigo_news(0, 1);
+  $latest_news = get_piwigo_news();
 
-  // echo '<pre>'; print_r($news); echo '</pre>';
-
-  if (isset($news['topics']) and isset($news['topics'][0]) and $news['topics'][0]['posted_on'] > time()-60*60*24*30)
+  if (isset($latest_news['id']) and $latest_news['posted_on'] > time()-60*60*24*30)
   {
-    $latest_news = $news['topics'][0];
-
     $page['messages'][] = sprintf(
       '%s <a href="%s" title="%s" target="_blank"><i class="icon-bell"></i> %s</a>',
       l10n('Latest Piwigo news'),

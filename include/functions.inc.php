@@ -536,6 +536,13 @@ function pwg_activity($object, $object_id, $action, $details=array())
     return;
   }
 
+  if (isset($_REQUEST['method']) and 'pwg.plugins.performAction' == $_REQUEST['method'] and $_REQUEST['action'] != $action)
+  {
+    // for example, if you "restore" a plugin, the internal sequence will perform deactivate/uninstall/install/activate.
+    // We only want to keep the last call to pwg_activity with the "restore" action.
+    return;
+  }
+
   $object_ids = $object_id;
   if (!is_array($object_id))
   {
@@ -556,10 +563,17 @@ function pwg_activity($object, $object_id, $action, $details=array())
     }
   }
 
+  if ('autoupdate' == $action)
+  {
+    // autoupdate on a plugin can happen anywhere, the "script/method" is not meaningfull
+    unset($details['method']);
+    unset($details['script']);
+  }
+
   $user_agent = null;
   if ('user' == $object and 'login' == $action and isset($_SERVER['HTTP_USER_AGENT']))
   {
-    $user_agent = $_SERVER['HTTP_USER_AGENT'];
+    $user_agent = strip_tags($_SERVER['HTTP_USER_AGENT']);
   }
 
   if ('photo' == $object and 'add' == $action and !isset($details['sync']))
@@ -585,10 +599,11 @@ function pwg_activity($object, $object_id, $action, $details=array())
   $inserts = array();
   $details_insert = pwg_db_real_escape_string(serialize($details));
   $ip_address = isset($_SERVER['REMOTE_ADDR']) ? $_SERVER['REMOTE_ADDR'] : null;
+  $session_id = !empty(session_id()) ? session_id() : 'none';
 
   foreach ($object_ids as $loop_object_id)
   {
-    $performed_by = $user['id'];
+    $performed_by = $user['id'] ?? 0; // on a plugin autoupdate, $user is not yet loaded
 
     if ('logout' == $action)
     {
@@ -600,7 +615,7 @@ function pwg_activity($object, $object_id, $action, $details=array())
       'object_id' => $loop_object_id,
       'action' => $action,
       'performed_by' => $performed_by,
-      'session_idx' => session_id(),
+      'session_idx' => $session_id,
       'ip_address' => $ip_address,
       'details' => $details_insert,
       'user_agent' => $user_agent,
@@ -830,7 +845,7 @@ function format_fromto($from, $to, $full=false)
  * @param bool $with_weeks
  * @return string
  */
-function time_since($original, $stop='minute', $format=null, $with_text=true, $with_week=true)
+function time_since($original, $stop='minute', $format=null, $with_text=true, $with_week=true, $only_last_unit=false)
 {
   $date = str2DateTime($original, $format);
 
@@ -862,17 +877,37 @@ function time_since($original, $stop='minute', $format=null, $with_text=true, $w
   $j = array_search($stop, array_keys($chunks));
 
   $print = ''; $i=0;
-  foreach ($chunks as $name => $value)
+  
+  if (!$only_last_unit)
   {
-    if ($value != 0)
+    foreach ($chunks as $name => $value)
     {
-      $print.= ' '.l10n_dec('%d '.$name, '%d '.$name.'s', $value);
+      if ($value != 0)
+      {
+        $print.= ' '.l10n_dec('%d '.$name, '%d '.$name.'s', $value);
+      }
+      if (!empty($print) && $i >= $j)
+      {
+        break;
+      }
+      $i++;
     }
-    if (!empty($print) && $i >= $j)
+  } else {
+    $reversed_chunks_names = array_keys($chunks);
+    while ($print == '' && $i<count($reversed_chunks_names )) 
     {
-      break;
+      $name = $reversed_chunks_names[$i];
+      $value = $chunks[$name];
+      if ($value != 0)
+      {
+        $print = l10n_dec('%d '.$name, '%d '.$name.'s', $value);
+      }
+      if (!empty($print) && $i >= $j)
+      {
+        break;
+      }
+      $i++;
     }
-    $i++;
   }
 
   $print = trim($print);

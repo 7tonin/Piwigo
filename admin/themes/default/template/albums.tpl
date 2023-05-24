@@ -13,6 +13,11 @@ var str_no_change_parent = "{'No, don\'t move this album here'|@translate}";
 var str_root = "{'Root'|@translate}";
 var openCat = {$open_cat};
 var nb_albums = {$nb_albums};
+var light_album_manager = {$light_album_manager};
+
+var x_nb_subcats = "{'%d sub-albums'|@translate}";
+var x_nb_images = "{'%d photos'|@translate}";
+var x_nb_sub_photos = "{'%d pictures in sub-albums'|@translate}";
 
 var delay_autoOpen = {$delay_before_autoOpen}
 {/footer_script}
@@ -114,7 +119,7 @@ const add_sub_album_of = '{'Create a sub-album of "%s"'|@translate|escape:javasc
 
 <div class="cat-move-header"> 
   <div class="add-album-button">
-    <label class="head-button-2 icon-plus-circled">
+    <label class="head-button-2 icon-add-album">
       <p>{'Add Album'|@translate}</p>
     </label>
   </div>
@@ -131,7 +136,7 @@ const add_sub_album_of = '{'Create a sub-album of "%s"'|@translate|escape:javasc
     <a class="icon-cancel CloseAddAlbum"></a>
     
     <div class="AddIconContainer">
-      <span class="AddIcon icon-blue icon-plus-circled"></span>
+      <span class="AddIcon icon-blue icon-add-album"></span>
     </div>
     <div class="AddIconTitle">
       <span></span>
@@ -277,6 +282,10 @@ const add_sub_album_of = '{'Create a sub-album of "%s"'|@translate|escape:javasc
       border: 20px solid #ff7700;
       opacity: 0;
   }
+}
+
+.add-album-button label::before {
+  margin-right: 7px;
 }
 
 #AddAlbum, #DeleteAlbum, #RenameAlbum {
@@ -533,8 +542,43 @@ input[name="position"] {
     display: none;
 }
 
-.badge-container .nb-sub-photos::before {
-  margin-right: 6px;
+.badge-container:hover .badge-dropdown {
+  display: flex;
+}
+
+.badge-dropdown {
+  position: absolute;
+  display: none;
+  flex-direction: column;
+  right: 50%;
+  top: 30px;
+  width: max-content;
+  border-radius: 10px;
+  z-index: 10;
+  transform: translateX(48%);
+  box-shadow: 0px 3px 3px 1px rgba(0,0,0,0.2);
+  padding: 10px 20px;
+}
+
+.badge-dropdown:after {
+  content: " ";
+  position: absolute;
+  top: -10px;
+  left: 50%;
+  transform: rotate(0);
+  border-width: 5px;
+  border-style: solid;
+}
+
+.badge-dropdown span {
+  background: transparent;
+  font-size: 14px;
+  font-weight: 600;
+  margin: 5px 0;
+}
+.badge-dropdown span::before {
+  margin: 0 8px 0 0;
+  width: 20px;
 }
 
 @media (max-width: 1415px) { 

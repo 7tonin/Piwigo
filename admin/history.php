@@ -39,6 +39,10 @@ $display_thumbnails = array('no_display_thumbnail' => l10n('No display'),
 
 check_status(ACCESS_ADMINISTRATOR);
 
+check_input_parameter('filter_ip', $_GET, false, '/^[0-9.]+$/');
+check_input_parameter('filter_image_id', $_GET, false, '/^\d+$/');
+check_input_parameter('filter_user_id', $_GET, false, '/^\d+$/');
+
 // +-----------------------------------------------------------------------+
 // |                             template init                             |
 // +-----------------------------------------------------------------------+
