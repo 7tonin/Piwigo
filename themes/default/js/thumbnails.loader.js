@@ -9,7 +9,8 @@ var thumbnails_queue = jQuery.manageAjax.create('queued', {
 });
 
 function add_thumbnail_to_queue(img, loop) {
-  thumbnails_queue.add({
+  img.attr('src', img.data('src'));
+  if(0)thumbnails_queue.add({
     type: 'GET', 
     url: img.data('src'), 
     data: { ajaxload: 'true' },
