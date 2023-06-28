@@ -28,6 +28,8 @@ $logger = new Logger(array(
   'filename' => 'log_' . date('Y-m-d') . '_' . sha1(date('Y-m-d') . $conf['db_password']) . '.txt',
   ));
 
+// get thumbnail via exif_thumbnail
+require('i_exif_thumbnail.inc.7.php');
 
 function trigger_notify() {}
 function get_extension( $filename )
