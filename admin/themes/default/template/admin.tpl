@@ -105,7 +105,9 @@ jQuery(document).ready(function() {
           <span class="adminMenubarCounter" title="{'%d waiting for validation'|translate:$NB_PENDING_COMMENTS}">{$NB_PENDING_COMMENTS}</span>
         {/if}</a></li>
 {/if}
+{if isset($U_UPDATES)}
         <li><a href="{$U_UPDATES}"><i class="icon-arrows-cw"></i>{'Updates'|@translate}</a></li>
+{/if}
       </ul>
 		</dd>
   </dl>
@@ -127,7 +129,7 @@ jQuery(document).ready(function() {
 
 <div id="content" class="content">
 
-  <h1>{$ADMIN_PAGE_TITLE}</h1>
+  <h1>{$ADMIN_PAGE_TITLE}<span class="admin-object-id">{$ADMIN_PAGE_OBJECT_ID}</span></h1>
 
   {if isset($TABSHEET)}
   {$TABSHEET}

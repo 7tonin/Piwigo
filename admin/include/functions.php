@@ -2592,6 +2592,17 @@ function delete_groups($group_ids)
     return false;
   }
 
+  if (preg_match('/^group:(\d+)$/', conf_get_param('email_admin_on_new_user', 'undefined'), $matches))
+  {
+    foreach ($group_ids as $group_id)
+    {
+      if ($group_id == $matches[1])
+      {
+        conf_update_param('email_admin_on_new_user', 'all', true);
+      }
+    }
+  }
+
   $group_id_string = implode(',', $group_ids);
 
   // destruction of the access linked to the group
@@ -3459,46 +3470,121 @@ function get_cache_size_derivatives($path)
 }
 
 /**
- * Return news from piwigo.org.
+ * Displays a header warning if we find missing photos on a random sample.
+ *
+ * @since 13.4.0
+ */
+function fs_quick_check()
+{
+  global $page, $conf;
+
+  if ($conf['fs_quick_check_period'] == 0)
+  {
+    return;
+  }
+
+  if (isset($page[__FUNCTION__.'_already_called']))
+  {
+    return;
+  }
+
+  $page[__FUNCTION__.'_already_called'] = true;
+  conf_update_param('fs_quick_check_last_check', date('c'));
+
+  $query = '
+SELECT
+    id
+  FROM '.IMAGES_TABLE.'
+  WHERE date_available < \'2022-12-08 00:00:00\'
+    AND path LIKE \'./upload/%\'
+  LIMIT 5000
+;';
+  $issue1827_ids = query2array($query, null, 'id');
+  shuffle($issue1827_ids);
+  $issue1827_ids = array_slice($issue1827_ids, 0, 50);
+
+  $query = '
+SELECT
+    id
+  FROM '.IMAGES_TABLE.'
+  LIMIT 5000
+;';
+  $random_image_ids = query2array($query, null, 'id');
+  shuffle($random_image_ids);
+  $random_image_ids = array_slice($random_image_ids, 0, 50);
+
+  $fs_quick_check_ids = array_unique(array_merge($issue1827_ids, $random_image_ids));
+
+  if (count($fs_quick_check_ids) < 1)
+  {
+    return;
+  }
+
+  $query = '
+SELECT
+    id,
+    path
+  FROM '.IMAGES_TABLE.'
+  WHERE id IN ('.implode(',', $fs_quick_check_ids).')
+;';
+  $fsqc_paths = query2array($query, 'id', 'path');
+
+  foreach ($fsqc_paths as $id => $path)
+  {
+    if (!file_exists($path))
+    {
+      global $template;
+
+      $template->assign(
+        'header_msgs',
+        array(
+          l10n('Some photos are missing from your file system. Details provided by plugin Check Uploads'),
+        )
+      );
+
+      return;
+    }
+  }
+}
+
+/**
+ * Return latest news from piwigo.org.
  *
  * @since 13
- * @param int $start
- * @param int $count
  */
-function get_piwigo_news($start, $count)
+function get_piwigo_news()
 {
-  global $lang_info, $conf;
+  global $lang_info;
 
-  $all_news = null;
+  $news = null;
 
-  $cache_path = PHPWG_ROOT_PATH.$conf['data_location'].'cache/piwigo_news-'.$lang_info['code'].'.cache.php';
+  $cache_path = PHPWG_ROOT_PATH.conf_get_param('data_location').'cache/piwigo_latest_news-'.$lang_info['code'].'.cache.php';
   if (!is_file($cache_path) or filemtime($cache_path) < strtotime('24 hours ago'))
   {
-    $forum_url = PHPWG_URL.'/forum';
-    $url = $forum_url.'/news.php?format=json&limit='.$count;
+    $url = PHPWG_URL.'/ws.php?method=porg.news.getLatest&format=json';
 
     if (fetchRemote($url, $content))
     {
       $all_news = array();
 
-      $topics = json_decode($content, true);
+      $porg_news_getLatest = json_decode($content, true);
 
-      foreach ($topics as $idx => $topic)
+      if (isset($porg_news_getLatest['result']))
       {
+        $topic = $porg_news_getLatest['result'];
+
         $news = array(
           'id' => $topic['topic_id'],
           'subject' => $topic['subject'],
           'posted_on' => $topic['posted_on'],
           'posted' => format_date($topic['posted_on']),
-          'url' => $forum_url.'/viewtopic.php?id='.$topic['topic_id'],
+          'url' => $topic['url'],
         );
-
-        $all_news[] = $news;
       }
 
       if (mkgetdir(dirname($cache_path)))
       {
-        file_put_contents($cache_path, serialize($all_news));
+        file_put_contents($cache_path, serialize($news));
       }
     }
     else
@@ -3507,15 +3593,10 @@ function get_piwigo_news($start, $count)
     }
   }
 
-  if (is_null($all_news))
+  if (is_null($news))
   {
-    $all_news = unserialize(file_get_contents($cache_path));
+    $news = unserialize(file_get_contents($cache_path));
   }
 
-  $news_slice = array_slice($all_news, $start, $count);
-
-  return array(
-    'total_count' => count($all_news),
-    'topics' => $news_slice,
-  );
+  return $news;
 }

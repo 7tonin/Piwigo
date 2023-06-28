@@ -14,6 +14,7 @@ let last_user_id = -1;
 let pwg_token = '';
 let selection = [];
 let first_update = true;
+let total_users = 0
 /*----------------
 Escape of pop-in
 ----------------*/
@@ -252,29 +253,58 @@ $( document ).ready(function() {
 
     /* Pagination */
 
-    if (view_selector === "compact") {
-        if (per_page < 10) {
-            per_page = 10
-            update_pagination_menu();
-            update_user_list();
-        
-            $("#pagination-per-page-5").removeClass("selected-pagination");
-            $("#pagination-per-page-10").addClass("selected-pagination");
-            $("#pagination-per-page-25").removeClass("selected-pagination");
-            $("#pagination-per-page-50").removeClass("selected-pagination");
-        }
-    } else {
+    switch (pagination) {
+      case '5':
         $("#pagination-per-page-5").addClass("selected-pagination");
         $("#pagination-per-page-10").removeClass("selected-pagination");
         $("#pagination-per-page-25").removeClass("selected-pagination");
         $("#pagination-per-page-50").removeClass("selected-pagination");
+        break;
+      case '10':
+        $("#pagination-per-page-5").removeClass("selected-pagination");
+        $("#pagination-per-page-10").addClass("selected-pagination");
+        $("#pagination-per-page-25").removeClass("selected-pagination");
+        $("#pagination-per-page-50").removeClass("selected-pagination");
+      
+        break;
+      case '25':
+        $("#pagination-per-page-5").removeClass("selected-pagination");
+        $("#pagination-per-page-10").removeClass("selected-pagination");
+        $("#pagination-per-page-25").addClass("selected-pagination");
+        $("#pagination-per-page-50").removeClass("selected-pagination");
+      
+        break;
+      case '50':
+        $("#pagination-per-page-5").removeClass("selected-pagination");
+        $("#pagination-per-page-10").removeClass("selected-pagination");
+        $("#pagination-per-page-25").removeClass("selected-pagination");
+        $("#pagination-per-page-50").addClass("selected-pagination");
+        break;
+      default:
+
+        break;
     }
+
+    $("#pagination-per-page-"+pagination).trigger('click');
 
     if (has_group) {
       advanced_filter_button_click();
       $("select[name='filter_group']").val(has_group);
       update_user_list();
     }
+
+    $('.search-cancel').on('click', function () {
+      $('.search-input').val('');
+      $('.search-input').trigger ("input");
+    })
+    
+    $('.search-input').on('input', function() {
+      if ($('.search-input').val() == '') {
+        $('.search-cancel').hide();
+      } else {
+        $('.search-cancel').show();
+      }
+    })
 });
 
 function set_view_selector(view_type) {
@@ -514,6 +544,17 @@ $('.pagination-arrow.left').on('click', () => {
 })
 
 $('.pagination-per-page a').on('click',function () {
+
+    jQuery.ajax({
+      url: "ws.php?format=json&method=pwg.users.preferences.set",
+      type: "POST",
+      data: {
+          param: "user-manager-pagination",
+          value: parseInt($(this).html()),
+          is_json: false,
+      }
+  });
+
     per_page = parseInt($(this).html());
     actual_page = 1;
     update_pagination_menu();
@@ -593,7 +634,7 @@ function advanced_filter_button_click() {
     } else { 
         advanced_filter_hide();
     }
-    update_user_list();
+    // update_user_list();
 }
 
 function advanced_filter_show() {
@@ -661,7 +702,7 @@ function add_user_close() {
 function add_user_open() {
     $('#AddUser .AddUserInput').val('');
     $("#AddUser").fadeIn();
-    $(".AddUserInput").first().focus();
+    $(".AddUserLabelUsername input").first().focus();
 }
 
 /*------------------
@@ -922,7 +963,7 @@ function fill_container_user_info(container, user_index) {
     container.attr('key', user_index);
     container.find(".user-container-username span").html(user.username);
     container.find(".user-container-initials span").html(get_initials(user.username)).addClass(color_icons[user.id % 5]);
-    container.find(".user-container-status span").html(user.status);
+    container.find(".user-container-status span").html(status_to_str[user.status]);
     container.find(".user-container-email span").html(user.email);
     generate_groups(container, user.groups);
     container.find(".user-container-registration-date").html(registration_dates[0]);
@@ -1056,6 +1097,7 @@ function fill_user_edit_update(user_to_edit, pop_in) {
     pop_in.find('.delete-user-button').unbind("click").click(function () {
         $.confirm({
             title: title_msg.replace('%s', user_to_edit.username),
+            content: "",
             buttons: {
                 confirm: {
                     text: confirm_msg,
@@ -1239,7 +1281,13 @@ function select_whole_set() {
             order: "id",
             page: actual_page - 1,
             per_page: 0,
-            exclude: [guest_id]
+            exclude: [guest_id],
+            status: $(".advanced-filter-select[name=filter_status]").val(),
+            group_id: $(".advanced-filter-select[name=filter_group]").val(),
+            min_level: $(".advanced-filter-select[name=filter_level]").val(),
+            max_level: $(".advanced-filter-select[name=filter_level]").val(),
+            min_register: register_dates[$(".dates-select-bar .slider-bar-container").slider("option", "values")[0]],
+            max_register: register_dates[$(".dates-select-bar .slider-bar-container").slider("option", "values")[1]],
         },
         beforeSend: function() {
             $("#checkActions .loading").show();
@@ -1360,6 +1408,11 @@ function update_user_info() {
             } else if (data.stat === 'fail') {
                 $("#UserList .update-user-fail").html(data.message);
                 $("#UserList .update-user-fail").fadeIn();
+                $(".update-user-button i").addClass("icon-floppy").removeClass("icon-spin6 animate-spin");
+                $(".update-user-button").removeClass("unclickable");
+                setTimeout(() => {
+                  $("#UserList .update-user-fail").fadeOut();
+                }, 5000);
             }
         }
     });
@@ -1434,7 +1487,7 @@ function update_guest_info() {
 function update_user_list() {
     let update_data = {
         display: "all",
-        order: "id",
+        order: "id DESC", // We want the most recent user first
         page: actual_page - 1,
         per_page: per_page,
         exclude: [guest_id]
@@ -1442,7 +1495,7 @@ function update_user_list() {
     if ($("#user_search").val().length != 0) {
       update_data["filter"] = $("#user_search").val();
     }
-    if ($(".advanced-filter").hasClass('advanced-filter-open') !== "none") {
+    if ($(".advanced-filter").hasClass('advanced-filter-open')) {
         update_data["status"] = $(".advanced-filter-select[name=filter_status]").val();
         update_data["group_id"] = $(".advanced-filter-select[name=filter_group]").val();
         update_data["min_level"] = $(".advanced-filter-select[name=filter_level]").val();
@@ -1463,8 +1516,8 @@ function update_user_list() {
                 console.log(data.message);
                 return;
             }
+            total_users = data.result.total_count;
             if (first_update) {
-                let total_users = data.result.total_count;
                 $("h1").append(`<span class='badge-number'>${total_users}</span>`);
                 first_update = false;
             }
@@ -1482,6 +1535,15 @@ function update_user_list() {
             set_selected_to_selection();
 
             $(".user-update-spinner").hide();
+
+            let nb_filters = 0;
+            ($(".advanced-filter-select[name=filter_status]").val() != "") ? nb_filters += 1 : false;
+            ($(".advanced-filter-select[name=filter_group]").val() != "") ? nb_filters += 1 : false;
+            ($(".advanced-filter-select[name=filter_level]").val() != "") ? nb_filters += 1 : false;
+            ($(".dates-select-bar .slider-bar-container").slider("option", "values")[0] != 0) ? nb_filters += 1 : false;
+            ($(".dates-select-bar .slider-bar-container").slider("option", "values")[1] != register_dates.length -1) ? nb_filters += 1 : false;
+        
+            show_filter_infos(nb_filters);
         },
         error: (raw_data) => {
             $(".user-update-spinner").hide();
@@ -1559,4 +1621,28 @@ function delete_user(uid) {
             //jQuery('#user'+uid+' .userDelete .loading').hide();
         }
     })
+}
+
+function show_filter_infos(nb_filters) {
+  if ($("#user_search").val().length != 0 || nb_filters != 0) {
+    if (total_users != "1") {
+      $(".filtered-users").html(filtered_users.replace(/%d/g, total_users));
+    } else {
+      $(".filtered-users").html(filtered_user.replace(/%d/g, total_users));
+    }
+  } else {
+    $(".filtered-users").html("");
+  }
+  
+  if (nb_filters != 0) {
+    $(".advanced-filter-btn").css({
+      width: "80px",
+    });
+    $(".filter-counter").html(nb_filters).css('display', 'flex');
+  } else {
+    $(".advanced-filter-btn").css({
+      width: "70px",
+    });
+    $(".filter-counter").css('display', 'none').html(0);
+  }
 }

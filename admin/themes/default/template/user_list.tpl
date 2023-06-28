@@ -22,21 +22,32 @@ const title_msg = '{'Are you sure you want to delete the user "%s"?'|@translate|
 const are_you_sure_msg  = '{'Are you sure?'|@translate|@escape:'javascript'}';
 const confirm_msg = '{'Yes, I am sure'|@translate|@escape}';
 const cancel_msg = '{'No, I have changed my mind'|@translate|@escape}';
-const str_and_others_tags = '{'and %s others'|@translate}';
+const str_and_others_tags = '{'and %s others'|@translate|escape:javascript}';
 const missingConfirm = "{'You need to confirm deletion'|translate|escape:javascript}";
 const missingUsername = "{'Please, enter a login'|translate|escape:javascript}";
 const fieldNotEmpty = "{'Name field must not be empty'|@translate|escape:javascript}"
 
-const registered_str = '{"Registered"|@translate}';
-const last_visit_str = '{"Last visit"|@translate}';
-const dates_infos = '{'between %s and %s'|translate}'
-const hide_str = '{'Hide'|@translate}';
-const show_str = '{'Show'|@translate}';
-const user_added_str = '{'User %s added'|@translate}';
-const str_popin_update_btn = '{'Update'|@translate}';
+const registered_str = '{"Registered"|@translate|escape:javascript}';
+const last_visit_str = '{"Last visit"|@translate|escape:javascript}';
+const dates_infos = '{'between %s and %s'|translate|escape:javascript}'
+const hide_str = '{'Hide'|@translate|escape:javascript}';
+const show_str = '{'Show'|@translate|escape:javascript}';
+const user_added_str = '{'User %s added'|@translate|escape:javascript}';
+const str_popin_update_btn = '{'Update'|@translate|escape:javascript}';
+const filtered_users = '{'<b>%d</b> filtered users'|@translate|escape:javascript}';
+const filtered_user = '{'<b>%d</b> filtered user'|@translate|escape:javascript}';
 const history_base_url = "{$U_HISTORY}";
 
+const status_to_str = {
+  'webmaster': "{'user_status_webmaster'|translate}",
+  'admin': "{'user_status_admin'|translate}",
+  'normal': "{'user_status_normal'|translate}",
+  'generic': "{'user_status_generic'|translate}",
+  'guest': "{'user_status_guest'|translate}",
+}
+
 const view_selector = '{$view_selector}';
+const pagination = '{$pagination}';
 
 months = [
   "{'Jan'|@translate}",
@@ -231,13 +242,15 @@ $(document).ready(function() {
       <div class="not-in-selection-mode" style="width: 264px; height:2px">
       </div>
     </div>
+    <div class="filtered-users"></div>
     <div class="advanced-filter-btn icon-filter">
       <span>{'Filters'|@translate}</span>
+      <span class="filter-counter"></span>
     </div>
     <div id='search-user'>
         <div class='search-info'> </div>
           {*This input (#user_search2) is used to bait the chrome autocomplete tool. It is hidden in navigator and is not meant to be seen.*}
-          <input id="user_search2" class='search-input' type='text' placeholder='{'Search'|@translate}'> 
+          <input id="user_search2" class='search-input2' type='text' placeholder='{'Search'|@translate}'> 
           <span class='icon-search search-icon'> </span>
           <span class="icon-cancel search-cancel"></span>
           <input id="user_search" class='search-input' type='text' placeholder='{'Search'|@translate}'>
@@ -538,7 +551,7 @@ $(document).ready(function() {
             <input id="applyAction" class="submit" type="submit" value="{'Apply action'|@translate}" name="submit"> <span id="applyOnDetails"></span></input>
             <span id="applyActionLoading" style="display:none"><img src="themes/default/images/ajax-loader-small.gif"></span>
             <br />
-            <span class="infos icon-ok" style="display:inline-block;display:none;max-width:100%;margin:0;margin-top:30px;min-height:0;border-left: 2px solid #00FF00;">{'Users modified'|translate}</span>
+            <span class="infos icon-ok icon-green" style="display:inline-block;display:none;max-width:100%;margin:0;margin-top:30px;min-height:0;">{'Users modified'|translate}</span>
           </p>
         </div> {* #permitActionUserList *}
       </fieldset>
@@ -823,11 +836,6 @@ $(document).ready(function() {
             <div class="user-property-permissions">
               <p class="user-property-button"><span class="icon-lock user-edit-icon"></span><a href="admin.php?page=user_perm&user_id={$guest_id}">{'Permissions'|@translate}</a></p>
             </div>
-            <div class="user-stats">
-              <div class="user-property-history">
-                <p class="user-property-button"> <span class="icon-signal user-edit-icon"> </span><a href="" >{'Visit history'|@translate}</a></p>
-              </div>
-            </div>
           </div>
         </div>
         <div class="properties-container">
@@ -1058,16 +1066,9 @@ $(document).ready(function() {
   font-weight:bold;
 }
 
-#AddUserSuccess span {
-  color: #0a0;
-}
-
 #AddUserSuccess label {
   padding: 10px;
-  background-color:  #c2f5c2;
-  border-left: 2px solid #00FF00;
   cursor: default;
-  color: #0a0;
 }
 
 #AddUserSuccess .edit-now {
@@ -1707,9 +1708,6 @@ $(document).ready(function() {
 .update-user-success {
     padding:10px;
     display:none;
-    background-color:#c2f5c2;
-    color: #0a0;
-    border-left: 2px solid #00FF00;
 }
 
 .update-user-fail {
@@ -1953,6 +1951,9 @@ Advanced filter
   position: absolute;
   right: 650px;
   margin-right:10px;
+  
+  display: flex;
+  justify-content: center;
 }
 
 #search-user {
@@ -2412,5 +2413,48 @@ Advanced filter
 
 .notClickableBefore:before {
   color: #bbb;
+}
+
+.filter-counter {
+  background: #ffa500;
+  border-radius: 50%;
+  justify-content: center;
+
+  font-size: 10px;
+  padding: 1px 6px;
+  color: black;
+
+  margin:0 4px 0 7px;
+  display: none;  
+}
+
+.filtered-users {
+  position: absolute;
+  right: 770px;
+  line-height: 38px;
+}
+
+@media (max-width: 1550px) {
+  #user_search {
+    width: 120px;
+  }
+  .advanced-filter-btn {
+    right: 570px;
+  }
+  .filtered-users {
+    right: 690px;
+  }
+}
+
+@media (max-width: 1465px) {
+  #user_search {
+    width: 70px;
+  }
+  .advanced-filter-btn {
+    right: 520px;
+  }
+  .filtered-users {
+    right: 640px;
+  }
 }
 </style>

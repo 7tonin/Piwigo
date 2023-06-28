@@ -280,6 +280,13 @@ $conf['stat_compare_year_displayed'] = 5;
 // Limit for linked albums search
 $conf['linked_album_search_limit'] = 100;
 
+// how often should we check for missing photos in the filesystem. Only in the
+// administration. Consider the fs_quick_check is always performed on
+// dashboard and maintenance pages. This setting is only for any other
+// administration page.
+// 0 to disable.
+$conf['fs_quick_check_period'] = 24*60*60;
+
 // +-----------------------------------------------------------------------+
 // |                                 email                                 |
 // +-----------------------------------------------------------------------+
@@ -631,6 +638,12 @@ $conf['picture_url_style'] = 'id';
 // tags is not unique, all tags with the same url representation will be shown
 $conf['tag_url_style'] = 'id-tag';
 
+// force an explicit port in the url (like ":80" or ":443")
+// * 'none' : do not add any port, whatever protocol is detected
+// * 'auto' : tries to smartly add a port based on $_SERVER variables
+// * 123 : adds ":123" next to url host
+$conf['url_port'] = 'none';
+
 // +-----------------------------------------------------------------------+
 // |                                 tags                                  |
 // +-----------------------------------------------------------------------+
@@ -743,6 +756,12 @@ $conf['dashboard_check_for_updates'] = true;
 // Number Weeks displayed on activity chart on the dashboard
 $conf['dashboard_activity_nb_weeks'] = 4;
 
+// On the Admin>Users>Activity page, should we display the connection/disconnections?
+// 'all' = do not filter, display all
+// 'admins_only' = only display connections of admin users
+// 'none' = don't even display connections of admin users
+$conf['activity_display_connections'] = 'admins_only';
+
 // On album mover page, number of seconds before auto openning album when
 // dragging an album. In milliseconds. 3 seconds by default.
 $conf['album_move_delay_before_auto_opening'] = 3*1000;
@@ -833,6 +852,12 @@ $conf['themes_dir'] = PHPWG_ROOT_PATH.'themes';
 
 // enable the synchronization method for adding photos
 $conf['enable_synchronization'] = true;
+
+// enable the update of Piwigo core from administration pages
+$conf['enable_core_update'] = true;
+
+// enable install/update of plugins/themes/languages from administration pages
+$conf['enable_extensions_install'] = true;
 
 // Permitted characters for files/directories during synchronization.
 // Do not add the ' U+0027 single quote apostrophe character, it WILL make some
