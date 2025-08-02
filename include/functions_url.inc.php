@@ -460,7 +460,7 @@ function make_section_in_url($params)
 function parse_section_url( $tokens, &$next_token)
 {
   $page=array();
-  if (strncmp(@$tokens[$next_token], 'categor', 7)==0 )
+  if (isset($tokens[$next_token]) and strncmp($tokens[$next_token], 'categor', 7)==0 )
   {
     $page['section'] = 'categories';
     $next_token++;
@@ -648,10 +648,14 @@ function parse_section_url( $tokens, &$next_token)
     $page['section'] = 'search';
     $next_token++;
 
-    preg_match('/(\d+)/', @$tokens[$next_token], $matches);
+    preg_match('/^(psk-\d{8}-[a-zA-Z0-9]{10})$/', @$tokens[$next_token], $matches);
     if (!isset($matches[1]))
     {
-      bad_request('search identifier is missing');
+      preg_match('/(\d+)/', @$tokens[$next_token], $matches);
+      if (!isset($matches[1]))
+      {
+        bad_request('search identifier is missing');
+      }
     }
     $page['search'] = $matches[1];
     $next_token++;

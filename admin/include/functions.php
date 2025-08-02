@@ -1914,7 +1914,8 @@ function fill_lounge($images, $categories)
     mass_inserts(
       LOUNGE_TABLE,
       array_keys($inserts[0]),
-      $inserts
+      $inserts,
+      array('ignore'=>true)
     );
   }
 }
@@ -1928,7 +1929,7 @@ function fill_lounge($images, $categories)
  */
 function empty_lounge($invalidate_user_cache=true)
 {
-  global $logger;
+  global $logger, $conf;
 
   if (isset($conf['empty_lounge_running']))
   {
@@ -1941,7 +1942,7 @@ function empty_lounge($invalidate_user_cache=true)
   }
 
   $exec_id = generate_key(4);
-  $logger->debug(__FUNCTION__.', exec='.$exec_id.', begins');
+  $logger->debug(__FUNCTION__.(isset($_REQUEST['method']) ? ' (API:'.$_REQUEST['method'].')' : '').', exec='.$exec_id.', begins');
 
   // if lounge is already being emptied, skip
   $query = '
@@ -2103,6 +2104,43 @@ SELECT
 }
 
 /**
+ * Dissociate a list of images from a category.
+ *
+ * @param int[] $images
+ * @param int $categories
+ */
+function dissociate_images_from_category($images, $category)
+{
+  // physical links must not be broken, so we must first retrieve image_id
+  // which create virtual links with the category to "dissociate from".
+  $query = '
+SELECT id
+  FROM '.IMAGE_CATEGORY_TABLE.'
+    INNER JOIN '.IMAGES_TABLE.' ON image_id = id
+  WHERE category_id ='.$category.'
+    AND id IN ('.implode(',', $images).')
+    AND (
+      category_id != storage_category_id
+      OR storage_category_id IS NULL
+    )
+;';
+  $dissociables = array_from_query($query, 'id');
+
+  if (!empty($dissociables))
+  {
+    $query = '
+DELETE
+  FROM '.IMAGE_CATEGORY_TABLE.'
+  WHERE category_id = '.$category.'
+    AND image_id IN ('.implode(',', $dissociables).')
+';
+    pwg_query($query);
+  }
+
+  return count($dissociables);
+}
+
+/**
  * Dissociate images from all old categories except their storage category and
  * associate to new categories.
  * This function will preserve ranks.
@@ -2190,6 +2228,13 @@ function pwg_URL()
  */
 function invalidate_user_cache($full = true)
 {
+  global $persistent_cache, $logger;
+
+  if (isset($logger) and gettype($logger) == 'object' and get_class($logger) == 'Logger')
+  {
+    $logger->info(__FUNCTION__.' called');
+  }
+
   if ($full)
   {
     $query = '
@@ -2206,6 +2251,8 @@ UPDATE '.USER_CACHE_TABLE.'
   SET need_update = \'true\';';
     pwg_query($query);
   }
+  $persistent_cache->purge(true);
+  conf_delete_param('count_orphans');
   trigger_notify('invalidate_user_cache', $full);
 }
 
@@ -2327,6 +2374,9 @@ function get_extents($start='')
  */
 function create_tag($tag_name)
 {
+  // clean the tag, no html/js allowed in tag name
+  $tag_name = strip_tags($tag_name);
+
   // does the tag already exists?
   $query = '
 SELECT id
@@ -2685,6 +2735,17 @@ function get_newsletter_subscribe_base_url($language='en_UK')
 }
 
 /**
+ * Get url on piwigo.org for old newsletters
+ *
+ * @param string $language (unused)
+ * @return string
+ */
+function get_old_newsletters_base_url($language='en_UK')
+{
+  return PHPWG_URL.'/newsletter';
+}
+
+/**
  * Return admin menu id for accordion.
  *
  * @param string $menu_page
@@ -2824,7 +2885,7 @@ function get_tag_ids($raw_tags, $allow_create=true)
     elseif ($allow_create)
     {
       // we have to create a new tag
-      $tag_ids[] = tag_id_from_tag_name($raw_tag);
+      $tag_ids[] = tag_id_from_tag_name(strip_tags($raw_tag));
     }
   }
 
@@ -3242,22 +3303,24 @@ SELECT id
 function add_md5sum($ids)
 {
   $query = '
-SELECT path
+SELECT
+    id,
+    path
   FROM '.IMAGES_TABLE.'
   WHERE id IN ('.implode(', ',$ids).')
 ;';
-  $paths = query2array($query, null, 'path');
-  $imgs_ids_paths = array_combine($ids, $paths);
+  $path_for_id = query2array($query, 'id', 'path');
+
   $updates = array();
-  foreach ($ids as $id)
+
+  foreach ($path_for_id as $id => $path)
   {
-    $file = PHPWG_ROOT_PATH.$imgs_ids_paths[$id];
-    $md5sum = md5_file($file);
     $updates[] = array(
       'id' => $id,
-      'md5sum' => $md5sum,
+      'md5sum' => md5_file(PHPWG_ROOT_PATH.$path),
     );
   }
+
   mass_updates(
     IMAGES_TABLE,
     array(
@@ -3266,7 +3329,35 @@ SELECT path
       ),
     $updates
   );
-  return count($ids);
+
+  return count($path_for_id);
+}
+
+function count_orphans()
+{
+  if (is_null(conf_get_param('count_orphans')))
+  {
+    // we don't care about the list of image_ids, we only care about the number
+    // of orphans, so let's use a faster method than calling count(get_orphans())
+    $query = '
+SELECT
+    COUNT(*)
+  FROM '.IMAGES_TABLE.'
+;';
+    list($image_counter_all) = pwg_db_fetch_row(pwg_query($query));
+
+    $query = '
+SELECT
+    COUNT(DISTINCT(image_id))
+  FROM '.IMAGE_CATEGORY_TABLE.'
+;';
+    list($image_counter_in_categories) = pwg_db_fetch_row(pwg_query($query));
+
+    $counter = $image_counter_all - $image_counter_in_categories;
+    conf_update_param('count_orphans', $counter, true);
+  }
+
+  return conf_get_param('count_orphans');
 }
 
 /**
@@ -3545,6 +3636,30 @@ SELECT
       return;
     }
   }
+
+  // search for duplicate paths
+  $query = '
+SELECT
+    path
+  FROM '.IMAGES_TABLE.'
+  GROUP BY path
+  HAVING COUNT(*) > 1
+;';
+  $duplicate_paths = query2array($query);
+
+  if (count($duplicate_paths) > 0)
+  {
+    global $template;
+
+    $template->assign(
+      'header_msgs',
+      array(
+        l10n('We have found %d duplicate paths. Details provided by plugin Check Uploads', count($duplicate_paths)),
+      )
+    );
+
+    return;
+  }
 }
 
 /**
@@ -3599,4 +3714,190 @@ function get_piwigo_news()
   }
 
   return $news;
+}
+
+function get_graphics_library()
+{
+  global $conf;
+
+  include_once(PHPWG_ROOT_PATH.'admin/include/image.class.php');
+
+  $library = pwg_image::get_library();
+
+  switch (pwg_image::get_library())
+  {
+    case 'imagick':
+      $img = new Imagick();
+      $version = $img->getVersion();
+      if (preg_match('/ImageMagick \d+\.\d+\.\d+-?\d*/', $version['versionString'], $match))
+      {
+        $library.= '/'.$match[0];
+      }
+      break;
+
+    case 'ext_imagick':
+      exec($conf['ext_imagick_dir'].'convert -version', $returnarray);
+      if (preg_match('/Version: ImageMagick (\d+\.\d+\.\d+-?\d*)/', $returnarray[0], $match))
+      {
+        $library.= '/'.$match[1];
+      }
+      break;
+
+    case 'gd':
+      $gd_info = gd_info();
+      $library.= '/'.@$gd_info['GD Version'];
+      break;
+  }
+
+  return $library;
+}
+
+function get_graphics_library_label()
+{
+  list($library_code, $library_version) = explode('/', get_graphics_library());
+
+  $label_for_lib = array(
+    'imagick' => 'ImageMagick',
+    'ext_imagick' => 'External ImageMagick',
+    'gd' => 'GD',
+  );
+
+  return $label_for_lib[$library_code].' '.$library_version;
+}
+
+function get_pwg_general_statitics()
+{
+  $stats = array();
+
+  $query = '
+SELECT COUNT(*)
+  FROM '.IMAGES_TABLE.'
+;';
+  list($stats['nb_photos']) = pwg_db_fetch_row(pwg_query($query));
+
+  $query = '
+SELECT COUNT(*)
+  FROM '.CATEGORIES_TABLE.'
+;';
+  list($stats['nb_categories']) = pwg_db_fetch_row(pwg_query($query));
+
+  $query = '
+SELECT COUNT(*)
+  FROM '.TAGS_TABLE.'
+;';
+  list($stats['nb_tags']) = pwg_db_fetch_row(pwg_query($query));
+
+  $query = '
+SELECT COUNT(*)
+  FROM '.IMAGE_TAG_TABLE.'
+;';
+  list($stats['nb_image_tag']) = pwg_db_fetch_row(pwg_query($query));
+
+  $query = '
+SELECT COUNT(*)
+  FROM '.USERS_TABLE.'
+;';
+  list($stats['nb_users']) = pwg_db_fetch_row(pwg_query($query));
+
+  $query = '
+SELECT
+    COUNT(*)
+  FROM '.USER_INFOS_TABLE.'
+  WHERE status IN (\'webmaster\', \'admin\')
+;';
+  list($stats['nb_admins']) = pwg_db_fetch_row(pwg_query($query));
+
+  $query = '
+SELECT COUNT(*)
+  FROM `'.GROUPS_TABLE.'`
+;';
+  list($stats['nb_groups']) = pwg_db_fetch_row(pwg_query($query));
+
+  $query = '
+SELECT COUNT(*)
+  FROM '.RATE_TABLE.'
+;';
+  list($stats['nb_rates']) = pwg_db_fetch_row(pwg_query($query));
+
+  $query = '
+SELECT
+    SUM(nb_pages)
+  FROM '.HISTORY_SUMMARY_TABLE.'
+  WHERE month IS NULL
+;';
+  list($stats['nb_views']) = pwg_db_fetch_row(pwg_query($query));
+
+  $query = '
+SELECT
+    SUM(filesize)
+  FROM '.IMAGES_TABLE.'
+;';
+  list($stats['disk_usage']) = pwg_db_fetch_row(pwg_query($query));
+
+  $query = '
+SELECT
+    COUNT(*),
+    SUM(filesize)
+  FROM '.IMAGE_FORMAT_TABLE.'
+;';
+  list($stats['nb_formats'], $stats['formats_disk_usage']) = pwg_db_fetch_row(pwg_query($query));
+
+  $stats['disk_usage'] += $stats['formats_disk_usage'];
+
+  return $stats;
+}
+
+function get_installation_date()
+{
+  $candidate = null;
+
+  // Piwigo first beta versions were created in septembre 2001, so it's not possible
+  // to have an installation prior to this "origin of times"
+  $piwigo_origins = '2001-09-01 00:00:00';
+
+  $query = '
+SELECT
+    registration_date
+  FROM '.USER_INFOS_TABLE.'
+  WHERE user_id = 2
+;';
+  $users = query2array($query);
+  if (count($users) > 0)
+  {
+    $candidate = $users[0]['registration_date'];
+  }
+
+  if (empty($candidate) or strtotime($candidate) < strtotime($piwigo_origins))
+  {
+    $query = '
+SELECT
+    MIN(registration_date) AS min_registration_date
+  FROM '.USER_INFOS_TABLE.'
+  WHERE registration_date > \''.$piwigo_origins.'\'
+;';
+    $users = query2array($query);
+    if (count($users) > 0)
+    {
+      $candidate = $users[0]['min_registration_date'];
+    }
+  }
+
+  if (empty($candidate) or strtotime($candidate) < strtotime($piwigo_origins))
+  {
+    // let's find another candidate
+    $query = '
+SELECT
+    date_available
+  FROM '.IMAGES_TABLE.'
+  ORDER BY id ASC
+  LIMIT 1
+;';
+    $images = query2array($query);
+    if (count($images) > 0)
+    {
+      $candidate = $images[0]['date_available'];
+    }
+  }
+
+  return $candidate;
 }

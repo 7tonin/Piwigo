@@ -116,6 +116,12 @@ class Template
     $this->smarty->registerPlugin('modifier', 'stripslashes', 'stripslashes');
     $this->smarty->registerPlugin('modifier', 'in_array', 'in_array');
     $this->smarty->registerPlugin('modifier', 'ucfirst', 'ucfirst');
+    $this->smarty->registerPlugin('modifier', 'strstr', 'strstr');
+    $this->smarty->registerPlugin('modifier', 'stristr', 'stristr');
+    $this->smarty->registerPlugin('modifier', 'trim', 'trim');
+    $this->smarty->registerPlugin('modifier', 'md5', 'md5');
+    $this->smarty->registerPlugin('modifier', 'strtolower', 'strtolower');
+    $this->smarty->registerPlugin('modifier', 'str_ireplace', 'str_ireplace');
     $this->smarty->registerPlugin('modifier', 'explode', array('Template', 'mod_explode') );
     $this->smarty->registerPlugin('modifier', 'ternary', array('Template', 'mod_ternary') );
     $this->smarty->registerPlugin('modifier', 'get_extent', array($this, 'get_extent') );
@@ -175,9 +181,20 @@ class Template
    */
   function set_theme($root, $theme, $path, $load_css=true, $load_local_head=true, $colorscheme='dark')
   {
-    $this->set_template_dir($root.'/'.$theme.'/'.$path);
-
     $themeconf = $this->load_themeconf($root.'/'.$theme);
+
+    // We loop over the theme and the parent theme, so if we exclude default, 
+    // standard pages can't get the header to load the html header
+    if (
+      'default' != $theme 
+      and in_array(script_basename(), array('identification', 'register', 'password', 'profile')) 
+      and (($themeconf['use_standard_pages'] ?? false) or conf_get_param('use_standard_pages', false))
+    )
+    {
+      $theme = 'standard_pages';
+    }
+
+    $this->set_template_dir($root.'/'.$theme.'/'.$path);
 
     if (isset($themeconf['parent']) and $themeconf['parent'] != $theme)
     {

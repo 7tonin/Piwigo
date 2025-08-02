@@ -215,7 +215,7 @@ SELECT id
     if ($notify_admin and 'none' != $conf['email_admin_on_new_user'])
     {
       include_once(PHPWG_ROOT_PATH.'include/functions_mail.inc.php');
-      $admin_url = get_absolute_root_url().'admin.php?page=user_list&username='.$login;
+      $admin_url = get_absolute_root_url().'admin.php?page=user_list&user_id='.$user_id;
 
       $keyargs_content = array(
         get_l10n_args('User: %s', stripslashes($login) ),
@@ -242,6 +242,7 @@ SELECT id
     {
       include_once(PHPWG_ROOT_PATH.'include/functions_mail.inc.php');
 
+      $length = rand(10, 15);
       $keyargs_content = array(
         get_l10n_args('Hello %s,', stripslashes($login)),
         get_l10n_args('Thank you for registering at %s!', $conf['gallery_title']),
@@ -250,7 +251,7 @@ SELECT id
         get_l10n_args('', ''),
         get_l10n_args('Link: %s', get_absolute_root_url()),
         get_l10n_args('Username: %s', stripslashes($login)),
-        get_l10n_args('Password: %s', stripslashes($password)),
+        get_l10n_args('Password: %s', str_repeat("*", $length)),
         get_l10n_args('Email: %s', $mail_address),
         get_l10n_args('', ''),
         get_l10n_args('If you think you\'ve received this email in error, please contact us at %s', get_webmaster_mail_address()),
@@ -327,7 +328,7 @@ function build_user($user_id, $use_cache=true)
  */
 function getuserdata($user_id, $use_cache=false)
 {
-  global $conf;
+  global $conf, $logger;
 
   // retrieve basic user data
   $query = '
@@ -407,10 +408,70 @@ SELECT
 
   if ($use_cache)
   {
+    $generate_user_cache = false;
+    $cache_generation_token_name = 'generate_user_cache-u'.$userdata['id'];
+    $exec_code = substr(sha1(random_bytes(1000)), 0, 4);
+    $logger_msg_prefix = '['.__FUNCTION__.'][exec_code='.$exec_code.'][user_id='.$userdata['id'].'] ';
+
     if (!isset($userdata['need_update'])
         or !is_bool($userdata['need_update'])
         or $userdata['need_update'] == true)
     {
+      $logger->info($logger_msg_prefix.'needs user_cache to be rebuilt');
+
+      $exec_id = pwg_unique_exec_begins($cache_generation_token_name);
+      if (false === $exec_id)
+      {
+        $logger->info($logger_msg_prefix.'starts to wait for another request to build user_cache');
+        $user_cache_waiting_start_time = get_moment();
+        for ($k = 0; $k < 20; $k++)
+        {
+          sleep(1);
+
+          $query = '
+SELECT
+   COUNT(*)
+  FROM '.USER_CACHE_TABLE.'
+  WHERE user_id='.$userdata['id'].'
+;';
+          list($nb_cache_lines) = pwg_db_fetch_row(pwg_query($query));
+
+          $logger_msg = $logger_msg_prefix.'user_cache generation waiting k='.$k.' ';
+          $waiting_time = get_elapsed_time($user_cache_waiting_start_time, get_moment());
+
+          if ($nb_cache_lines > 0)
+          {
+            $logger->info($logger_msg.'user_cache rebuilt, after waiting '.$waiting_time);
+            return getuserdata($user_id, false);
+          }
+          elseif (!pwg_unique_exec_is_running($cache_generation_token_name))
+          {
+            $logger->info($logger_msg.'user_cache rebuilt but has been reset since, give it another try, after waiting '.$waiting_time);
+            return getuserdata($user_id, true);
+          }
+          else
+          {
+            $logger->info($logger_msg.'user_cache not ready yet, after waiting '.$waiting_time);
+          }
+        }
+
+        $logger->info($logger_msg_prefix.'user_cache generation waiting has timed out after '.get_elapsed_time($user_cache_waiting_start_time, get_moment()));
+        set_status_header(503, 'Service Unavailable');
+        @header('Retry-After: 900');
+        header('Content-Type: text/html; charset='.get_pwg_charset());
+        echo l10n('Rebuilding user cache takes long. Please, come back later.');
+        echo str_repeat( ' ', 512); //IE6 doesn't error output if below a size
+        exit();
+      }
+      else
+      {
+        $generate_user_cache = true;
+      }
+    }
+
+    if ($generate_user_cache)
+    {
+      $user_cache_generation_start_time = get_moment();
       $userdata['cache_update_time'] = time();
 
       // Set need update are done
@@ -510,6 +571,9 @@ INSERT IGNORE INTO '.USER_CACHE_TABLE.'
   (empty($userdata['last_photo_date']) ? 'NULL': '\''.$userdata['last_photo_date'].'\'').
   ',\''.$userdata['image_access_type'].'\',\''.$userdata['image_access_list'].'\')';
       pwg_query($query);
+
+      pwg_unique_exec_ends($cache_generation_token_name);
+      $logger->info($logger_msg_prefix.'user_cache generated, executed in '.get_elapsed_time($user_cache_generation_start_time, get_moment()));
     }
   }
 
@@ -724,6 +788,8 @@ SELECT *
       unset($cache['default_user']['user_id']);
       unset($cache['default_user']['status']);
       unset($cache['default_user']['registration_date']);
+      unset($cache['default_user']['last_visit']);
+      unset($cache['default_user']['last_visit_from_history']);
     }
     else
     {
@@ -982,6 +1048,29 @@ function log_user($user_id, $remember_me)
 {
   global $conf, $user;
 
+  //New default login and register pages, if users changes languages and succesfully logs in
+  //we want to update the userpref language stored in a cookie
+
+  //TODO check value of cookie
+
+  if (isset($_COOKIE['lang']) and $user['language'] != $_COOKIE['lang'])
+  {
+    if (!array_key_exists($_COOKIE['lang'], get_languages()))
+    {
+      fatal_error('[Hacking attempt] the input parameter "'.$_COOKIE['lang'].'" is not valid');
+    }
+
+    single_update(
+      USER_INFOS_TABLE,
+      array('language' => $_COOKIE['lang']),
+      array('user_id' => $user_id)
+    );
+
+    // We unset the lang cookie, if user has changed their language using interface we don't want to keep setting it back 
+    // to what was chosen using standard pages lang switch
+    setcookie("lang", "", time() - 3600);
+  }
+
   if ($remember_me and $conf['authorize_remembering'])
   {
     $now = time();
@@ -1038,6 +1127,12 @@ function auto_login()
       $key = calculate_auto_login_key( $cookie[0], $cookie[1], $username );
       if ($key!==false and $key===$cookie[2])
       {
+        // Since Piwigo 16, 'connected_with' in the session defines the authentication context (UI, API, etc).
+        // Auto-login via remember-me may miss this, so we set it to 'pwg_ui' for UI logins (not API).
+        if (script_basename() != 'ws')
+        {
+          $_SESSION['connected_with'] = 'pwg_ui';
+        }
         log_user($cookie[0], true);
         trigger_notify('login_success', stripslashes($username));
         return true;
@@ -1572,14 +1667,28 @@ function get_recent_photos_sql($db_field)
  *
  * @return bool
  */
-function auth_key_login($auth_key)
+function auth_key_login($auth_key, $connection_by_header=false)
 {
   global $conf, $user, $page;
 
-  if (!preg_match('/^[a-z0-9]{30}$/i', $auth_key))
+  $valid_key = false;
+  $secret_key = null;
+  if (preg_match('/^[a-z0-9]{30}$/i', $auth_key))
   {
-    return false;
+    $valid_key = 'auth_key';
   }
+  else if (
+    preg_match('/^pkid-\d{8}-[a-z0-9]{20}:[a-z0-9]{40}$/i', $auth_key)
+    and $connection_by_header
+    )
+  {
+    $valid_key = 'api_key';
+    $tmp_key = explode(':', $auth_key);
+    $auth_key = $tmp_key[0];
+    $secret_key = $tmp_key[1];
+  }
+
+  if (!$valid_key) return false;
 
   $query = '
 SELECT
@@ -1600,6 +1709,22 @@ SELECT
   
   $key = $keys[0];
 
+  // the key is an api_key
+  if ('api_key' === $valid_key)
+  {
+    // check secret
+    if (!pwg_password_verify($secret_key, $key['apikey_secret']))
+    {
+      return false;
+    }
+
+    // is the key is revoked?
+    if (null != $key['revoked_on'])
+    {
+      return false;
+    }
+  }
+
   // is the key still valid?
   if (strtotime($key['expired_on']) < strtotime($key['dbnow']))
   {
@@ -1608,12 +1733,34 @@ SELECT
   }
 
   // admin/webmaster/guest can't get connected with authentication keys
-  if (!in_array($key['status'], array('normal','generic')))
+  if ('auth_key' === $valid_key and !in_array($key['status'], array('normal','generic')))
   {
     return false;
   }
 
   $user['id'] = $key['user_id'];
+
+  // update last used key 
+  single_update(
+    USER_AUTH_KEYS_TABLE,
+    array('last_used_on' => $key['dbnow']),
+    array(
+      'user_id' => $user['id'],
+      'auth_key' => $key['auth_key']
+    ),   
+  );
+
+  // set the type of connection
+  $_SESSION['connected_with'] = $valid_key;
+
+  // if the connection is made via an API key in the header,
+  // access is authenticated without creating a persistent user session
+  // this enables stateless authentication for API calls
+  if ($connection_by_header)
+  {
+    return true;
+  }
+
   log_user($user['id'], false);
   trigger_notify('login_success', $key['username']);
 
@@ -1682,6 +1829,7 @@ SELECT
       'created_on' => $now,
       'duration' => $conf['auth_key_duration'],
       'expired_on' => $expiration,
+      'key_type' => 'auth_key',
       );
     
     single_insert(USER_AUTH_KEYS_TABLE, $key);
@@ -1710,6 +1858,7 @@ UPDATE '.USER_AUTH_KEYS_TABLE.'
   SET expired_on = NOW()
   WHERE user_id = '.$user_id.'
     AND expired_on > NOW()
+    AND key_type = \'auth_key\'
 ;';
   pwg_query($query);
 }
@@ -1730,6 +1879,53 @@ function deactivate_password_reset_key($user_id)
       'activation_key_expire' => null,
       ),
     array('user_id' => $user_id)
+    );
+}
+
+/**
+ * Generate reset password link
+ *
+ * @since 15
+ * @param int $user_id
+ * @param boolean $first_login
+ * @return array time_validation and password link 
+ */
+function generate_password_link($user_id, $first_login=false)
+{
+  global $conf;
+
+  $activation_key = generate_key(20);
+
+  $duration = $first_login
+  ? $conf['password_activation_duration'] 
+  : $conf['password_reset_duration'];
+  list($expire) = pwg_db_fetch_row(pwg_query('SELECT ADDDATE(NOW(), INTERVAL '. $duration .' SECOND)'));
+
+  single_update(
+    USER_INFOS_TABLE,
+    array(
+      'activation_key' => pwg_password_hash($activation_key),
+      'activation_key_expire' => $expire,
+      ),
+    array('user_id' => $user_id)
+    );
+
+    set_make_full_url();
+
+    $password_link = get_root_url().'password.php?key='.$activation_key;
+
+    unset_make_full_url();
+
+    $time_validation = time_since(
+      strtotime('now -'.$duration.' second'),
+      'second',
+      null,
+      false
+    );
+
+    return array(
+      'time_validation' => $time_validation,
+      'password_link' => $password_link,
     );
 }
 
@@ -1869,5 +2065,594 @@ function userprefs_get_param($param, $default_value=null)
   }
 
   return $default_value;
+}
+
+/**
+ * See if this is the first time the user has logged on
+ *
+ * @since 15
+ * @param int $user_id
+ * @return bool true if first connexion else false 
+ */
+function has_already_logged_in($user_id)
+{
+  $query = '
+SELECT COUNT(*)
+  FROM '.ACTIVITY_TABLE.'
+  WHERE action = \'login\' and performed_by = '.$user_id.'';
+
+  list($logged_in) = pwg_db_fetch_row(pwg_query($query));
+  if ($logged_in > 0)
+  {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Check all user infos and save parameters
+ *
+ * @since 16
+ * @param mixed[] $params
+ *    @option string username (optional)
+ *    @option string password (optional)
+ *    @option string email (optional)
+ *    @option string status (optional)
+ *    @option int level (optional)
+ *    @option string language (optional)
+ *    @option string theme (optional)
+ *    @option int nb_image_page (optional)
+ *    @option int recent_period (optional)
+ *    @option bool expand (optional)
+ *    @option bool show_nb_comments (optional)
+ *    @option bool show_nb_hits (optional)
+ *    @option bool enabled_high (optional)
+ */
+function check_and_save_user_infos($params)
+{
+  if (isset($params['username']) and strlen(str_replace( " ", "",  $params['username'])) == 0)
+  {
+    // return new PwgError(WS_ERR_INVALID_PARAM, 'Name field must not be empty');
+    return array(
+      'error' => array(
+        'code' => WS_ERR_INVALID_PARAM,
+        'message' => 'Name field must not be empty'
+      )
+    );
+  }
+
+  global $conf, $user, $service;
+
+  include_once(PHPWG_ROOT_PATH.'admin/include/functions.php');
+
+  $updates = $updates_infos = array();
+  $update_status = null;
+
+  if (count($params['user_id']) == 1)
+  {
+    if (get_username($params['user_id'][0]) === false)
+    {
+      // return new PwgError(WS_ERR_INVALID_PARAM, 'This user does not exist.');
+      return array(
+        'error' => array(
+          'code' => WS_ERR_INVALID_PARAM,
+          'message' => 'This user does not exist.'
+        )
+      );
+    }
+
+    if (!empty($params['username']))
+    {
+      $user_id = get_userid($params['username']);
+      if ($user_id and $user_id != $params['user_id'][0])
+      {
+        // return new PwgError(WS_ERR_INVALID_PARAM, l10n('this login is already used'));
+        return array(
+          'error' => array(
+            'code' => WS_ERR_INVALID_PARAM,
+            'message' => l10n('this login is already used')
+          )
+        );
+      }
+      if ($params['username'] != strip_tags($params['username']))
+      {
+        // return new PwgError(WS_ERR_INVALID_PARAM, l10n('html tags are not allowed in login'));
+        return array(
+          'error' => array(
+            'code' => WS_ERR_INVALID_PARAM,
+            'message' => l10n('html tags are not allowed in login')
+          )
+        );
+      }
+      $updates[ $conf['user_fields']['username'] ] = $params['username'];
+    }
+
+    if (!empty($params['email']))
+    {
+      if ( ($error = validate_mail_address($params['user_id'][0], $params['email'])) != '')
+      {
+        // return new PwgError(WS_ERR_INVALID_PARAM, $error);
+        return array(
+          'error' => array(
+            'code' => WS_ERR_INVALID_PARAM,
+            'message' => $error
+          )
+        );
+      }
+      $updates[ $conf['user_fields']['email'] ] = $params['email'];
+    }
+
+    if (!empty($params['password']))
+    {
+      if (!is_webmaster())
+      {
+        $password_protected_users = array($conf['guest_id']);
+
+        $query = '
+SELECT
+    user_id
+  FROM '.USER_INFOS_TABLE.'
+  WHERE status IN (\'webmaster\', \'admin\')
+;';
+        $admin_ids = query2array($query, null, 'user_id');
+
+        // we add all admin+webmaster users BUT the user herself
+        $password_protected_users = array_merge($password_protected_users, array_diff($admin_ids, array($user['id'])));
+
+        if (in_array($params['user_id'][0], $password_protected_users))
+        {
+          // return new PwgError(403, 'Only webmasters can change password of other "webmaster/admin" users');
+          return array(
+            'error' => array(
+              'code' => 403,
+              'message' => 'Only webmasters can change password of other "webmaster/admin" users'
+            )
+          );
+        }
+      }
+
+      $updates[ $conf['user_fields']['password'] ] = $conf['password_hash']($params['password']);
+    }
+  }
+
+  if (!empty($params['status']))
+  {
+    if (in_array($params['status'], array('webmaster', 'admin')) and !is_webmaster() )
+    {
+      // return new PwgError(403, 'Only webmasters can grant "webmaster/admin" status');
+      return array(
+        'error' => array(
+          'code '=> 403,
+          'message' => 'Only webmasters can grant "webmaster/admin" status'
+        )
+      );
+    }
+    
+    if ( !in_array($params['status'], array('guest','generic','normal','admin','webmaster')) )
+    {
+      // return new PwgError(WS_ERR_INVALID_PARAM, 'Invalid status');
+      return array(
+        'error' => array(
+          'code' => WS_ERR_INVALID_PARAM,
+          'message' => 'Invalid status'
+        )
+      );
+    }
+
+    $protected_users = array(
+      $user['id'],
+      $conf['guest_id'],
+      $conf['webmaster_id'],
+      );
+
+    // an admin can't change status of other admin/webmaster
+    if ('admin' == $user['status'])
+    {
+      $query = '
+SELECT
+    user_id
+  FROM '.USER_INFOS_TABLE.'
+  WHERE status IN (\'webmaster\', \'admin\')
+;';
+      $protected_users = array_merge($protected_users, query2array($query, null, 'user_id'));
+    }
+
+    // status update query is separated from the rest as not applying to the same
+    // set of users (current, guest and webmaster can't be changed)
+    $params['user_id_for_status'] = array_diff($params['user_id'], $protected_users);
+
+    $update_status = $params['status'];
+  }
+
+  if (!empty($params['level']) or @$params['level']===0)
+  {
+    if ( !in_array($params['level'], $conf['available_permission_levels']) )
+    {
+      // return new PwgError(WS_ERR_INVALID_PARAM, 'Invalid level');
+      return array(
+        'error' => array(
+          'code' => WS_ERR_INVALID_PARAM,
+          'message' => 'Invalid level'
+        )
+      );
+    }
+    $updates_infos['level'] = $params['level'];
+  }
+
+  if (!empty($params['language']))
+  {
+    if ( !in_array($params['language'], array_keys(get_languages())) )
+    {
+      // return new PwgError(WS_ERR_INVALID_PARAM, 'Invalid language');
+      return array(
+        'error' => array(
+          'code' => WS_ERR_INVALID_PARAM,
+          'message' => 'Invalid language'
+        )
+      );
+    }
+    $updates_infos['language'] = $params['language'];
+  }
+
+  if (!empty($params['theme']))
+  {
+    if ( !in_array($params['theme'], array_keys(get_pwg_themes())) )
+    {
+      // return new PwgError(WS_ERR_INVALID_PARAM, 'Invalid theme');
+      return array(
+        'error' => array(
+          'code' => WS_ERR_INVALID_PARAM,
+          'message' => 'Invalid theme'
+        )
+      );
+    }
+    $updates_infos['theme'] = $params['theme'];
+  }
+
+  if (!empty($params['nb_image_page']))
+  {
+    $updates_infos['nb_image_page'] = $params['nb_image_page'];
+  }
+
+  if (!empty($params['recent_period']) or @$params['recent_period']===0)
+  {
+    $updates_infos['recent_period'] = $params['recent_period'];
+  }
+
+  if (!empty($params['expand']) or @$params['expand']===false)
+  {
+    $updates_infos['expand'] = boolean_to_string($params['expand']);
+  }
+
+  if (!empty($params['show_nb_comments']) or @$params['show_nb_comments']===false)
+  {
+    $updates_infos['show_nb_comments'] = boolean_to_string($params['show_nb_comments']);
+  }
+
+  if (!empty($params['show_nb_hits']) or @$params['show_nb_hits']===false)
+  {
+    $updates_infos['show_nb_hits'] = boolean_to_string($params['show_nb_hits']);
+  }
+
+  if (!empty($params['enabled_high']) or @$params['enabled_high']===false)
+  {
+    $updates_infos['enabled_high'] = boolean_to_string($params['enabled_high']);
+  }
+
+  // perform updates
+  single_update(
+    USERS_TABLE,
+    $updates,
+    array($conf['user_fields']['id'] => $params['user_id'][0])
+    );
+
+  if (isset($updates[ $conf['user_fields']['password'] ]))
+  {
+    deactivate_user_auth_keys($params['user_id'][0]);
+  }
+
+  if (isset($updates[ $conf['user_fields']['email'] ]))
+  {
+    deactivate_password_reset_key($params['user_id'][0]);
+  }
+
+  if (isset($update_status) and count($params['user_id_for_status']) > 0)
+  {
+    $query = '
+UPDATE '. USER_INFOS_TABLE .' SET
+    status = "'. $update_status .'"
+  WHERE user_id IN('. implode(',', $params['user_id_for_status']) .')
+;';
+    pwg_query($query);
+
+    // we delete sessions, ie disconnect, for users if status becomes "guest".
+    // It's like deactivating the user.
+    if ('guest' == $update_status)
+    {
+      foreach ($params['user_id_for_status'] as $user_id_for_status)
+      {
+        delete_user_sessions($user_id_for_status);
+      }
+    }
+  }
+
+  if (count($updates_infos) > 0)
+  {
+    $query = '
+UPDATE '. USER_INFOS_TABLE .' SET ';
+
+    $first = true;
+    foreach ($updates_infos as $field => $value)
+    {
+      if (!$first) $query.= ', ';
+      else $first = false;
+      $query.= $field .' = "'. $value .'"';
+    }
+
+    $query.= '
+  WHERE user_id IN('. implode(',', $params['user_id']) .')
+;';
+    pwg_query($query);
+  }
+
+  // manage association to groups
+  if (!empty($params['group_id']))
+  {
+    $query = '
+DELETE
+  FROM '.USER_GROUP_TABLE.'
+  WHERE user_id IN ('.implode(',', $params['user_id']).')
+;';
+    pwg_query($query);
+
+    // we remove all provided groups that do not really exist
+    $query = '
+SELECT
+    id
+  FROM `'.GROUPS_TABLE.'`
+  WHERE id IN ('.implode(',', $params['group_id']).')
+;';
+    $group_ids = array_from_query($query, 'id');
+
+    // if only -1 (a group id that can't exist) is in the list, then no
+    // group is associated
+    
+    if (count($group_ids) > 0)
+    {
+      $inserts = array();
+      
+      foreach ($group_ids as $group_id)
+      {
+        foreach ($params['user_id'] as $user_id)
+        {
+          $inserts[] = array('user_id' => $user_id, 'group_id' => $group_id);
+        }
+      }
+
+      mass_inserts(USER_GROUP_TABLE, array_keys($inserts[0]), $inserts);
+    }
+  }
+
+  invalidate_user_cache();
+
+  pwg_activity('user', $params['user_id'], 'edit');
+
+  return array(
+    'user_id' => $params['user_id'],
+    'infos' => $updates_infos,
+    'account' => $updates
+  );
+}
+
+/**
+ * Create a new api_key
+ *
+ * @since 16
+ * @param int $user_id
+ * @param int|null $duration
+ * @param string $key_name
+ * @return array auth_key / apikey_secret / apikey_name / 
+ * user_id / created_on / duration / expired_on / key_type
+ */
+function create_api_key($user_id, $duration, $key_name)
+{
+  $key_id = 'pkid-'.date('Ymd').'-'.generate_key(20);
+  $key_secret = generate_key(40);
+
+  list($dbnow) = pwg_db_fetch_row(pwg_query('SELECT NOW();'));
+
+  $key = array(
+    'auth_key' => $key_id,
+    'apikey_secret' => pwg_password_hash($key_secret),
+    'apikey_name' => $key_name,
+    'user_id' => $user_id,
+    'created_on' => $dbnow,
+    'key_type' => 'api_key'
+  );
+
+  if (!empty($duration))
+  {
+    $query = '
+SELECT
+  ADDDATE(NOW(), INTERVAL '.($duration * 60 * 60 * 24).' SECOND)
+;';
+    list($expiration) = pwg_db_fetch_row(pwg_query($query));
+    $key['duration'] = $duration;
+  }
+  $key['expired_on'] = $expiration;
+  
+  single_insert(USER_AUTH_KEYS_TABLE, $key);
+
+  $key['apikey_secret'] = $key_secret;
+  return $key;
+}
+
+/**
+ * Revoke a api_key
+ *
+ * @since 16
+ * @param int $user_id
+ * @param string $pkid
+ * @return string|bool
+ */
+function revoke_api_key($user_id, $pkid)
+{
+  $query = '
+SELECT 
+  COUNT(*),
+  NOW()
+  FROM `'.USER_AUTH_KEYS_TABLE.'`
+  WHERE auth_key = "'.$pkid.'"
+  AND user_id = '.$user_id.'
+;';
+
+  list($key, $now) = pwg_db_fetch_row(pwg_query($query));
+  if ($key == 0)
+  {
+    return l10n('API Key not found');
+  }
+
+  single_update(
+    USER_AUTH_KEYS_TABLE,
+    array('revoked_on' => $now),
+    array(
+      'auth_key' => $pkid,
+      'user_id' => $user_id
+    )
+  );
+
+  return true;
+}
+
+/**
+ * Edit a api_key
+ *
+ * @since 16
+ * @param int $user_id
+ * @param string $pkid
+ * @return string|bool
+ */
+function edit_api_key($user_id, $pkid, $api_name)
+{
+  $query = '
+SELECT 
+  COUNT(*)
+  FROM `'.USER_AUTH_KEYS_TABLE.'`
+  WHERE auth_key = "'.$pkid.'"
+  AND user_id = '.$user_id.'
+;';
+
+  list($key) = pwg_db_fetch_row(pwg_query($query));
+  if ($key == 0)
+  {
+    return l10n('API Key not found');
+  }
+
+  single_update(
+    USER_AUTH_KEYS_TABLE,
+    array('apikey_name' => $api_name),
+    array(
+      'auth_key' => $pkid,
+      'user_id' => $user_id
+    )
+  );
+
+  return true;
+}
+
+/**
+ * Get all api_key
+ *
+ * @since 16
+ * @param string $user_id
+ * @return array|false
+ */
+function get_api_key($user_id)
+{
+  $query = '
+SELECT *
+  FROM `'.USER_AUTH_KEYS_TABLE.'`
+  WHERE user_id = '.$user_id.'
+  AND key_type = "api_key"
+;';
+
+  $api_keys = query2array($query);
+  if (!$api_keys) return false;
+
+  $query = '
+SELECT
+  NOW()
+;';
+  list($now) = pwg_db_fetch_row(pwg_query($query));
+
+  foreach ($api_keys as $i => $api_key)
+  {
+    $api_key['apikey_secret'] = str_repeat("*", 40);
+    unset($api_key['auth_key_id'], $api_key['user_id'], $api_key['key_type']);
+
+    $api_key['created_on_format'] = format_date($api_key['created_on'], array('day', 'month', 'year'));
+    $api_key['expired_on_format'] = format_date($api_key['expired_on'], array('day', 'month', 'year'));
+    $api_key['last_used_on_since'] = 
+      $api_key['last_used_on']
+      ? time_since($api_key['last_used_on'], 'day') 
+      : l10n('Never');
+
+    $expired_on = str2DateTime($api_key['expired_on']);
+    $now = str2DateTime($now);
+    
+    $api_key['is_expired'] = $expired_on < $now;
+    if ($api_key['is_expired'])
+    {
+      $api_key['expiration'] = l10n('Expired');
+    }
+    else
+    {
+      $diff = dateDiff($now, $expired_on);
+      if ($diff->days > 0)
+      {
+        $api_key['expiration'] = l10n('%d days', $diff->days);
+      }
+      elseif ($diff->h > 0)
+      {
+        $api_key['expiration'] = l10n('%d hours', $diff->h);
+      }
+      else
+      {
+        $api_key['expiration'] = l10n('%d minutes', $diff->i);
+      }
+    }
+      
+    $api_key['expired_on_since'] = time_since($api_key['expired_on'], 'day');
+
+    $api_key['revoked_on_since'] = 
+      $api_key['revoked_on']
+      ? time_since($api_key['revoked_on'], 'day') 
+      : null;
+
+    $api_key['revoked_on_message'] =
+      $api_key['revoked_on']
+      ? l10n('This API key was manually revoked on %s', format_date($api_key['revoked_on'], array('day', 'month', 'year')))
+      : null;
+
+    $api_keys[$i] = $api_key;
+  }
+
+  return $api_keys;
+}
+
+/**
+ * Is connected with pwg_ui (identification.php)
+ *
+ * @since 16
+ * @return bool
+ */
+function connected_with_pwg_ui()
+{
+  // You can manage your api key only if you are connected via identification.php
+  if (isset($_SESSION['connected_with']) and 'pwg_ui' === $_SESSION['connected_with'])
+  {
+    return true;
+  }
+  return false;
 }
 ?>

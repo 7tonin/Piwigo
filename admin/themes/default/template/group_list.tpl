@@ -84,9 +84,9 @@ usersCache.selectize(jQuery('select.UserSearch'));
      
       <div class="icon-ellipsis-vert group-dropdown-options not-in-selection-mode">
         <div id="GroupOptions" class="dropdown">
-          <option class="icon-docs dropdown-option" id="GroupDuplicate" value="duplicate">{'Duplicate'|@translate}</option>
-          <option class="icon-trash dropdown-option" id="GroupDelete" value="delete">{'Delete'|@translate}</option>
-          <option class="icon-star dropdown-option" id="GroupDefault" value="delete"></option>
+          <div class="icon-docs dropdown-option" id="GroupDuplicate" value="duplicate">{'Duplicate'|@translate}</div>
+          <div class="icon-trash dropdown-option" id="GroupDelete" value="delete">{'Delete'|@translate}</div>
+          <div class="icon-star dropdown-option" id="GroupDefault" value="delete"></div>
         </div>
       </div>
 
@@ -153,8 +153,8 @@ usersCache.selectize(jQuery('select.UserSearch'));
       </select>
     </div>
     
-    <button class="icon-ok ConfirmMergeButton">Confirm merge</button>
-    <a id="CancelMerge" onclick="updateSelectionPanel('Selection')">Cancel</a>
+    <button class="icon-ok ConfirmMergeButton">{'Confirm merge'|@translate}</button>
+    <a id="CancelMerge" onclick="updateSelectionPanel('Selection')">{'Cancel'|@translate}</a>
    </div>
  
 
@@ -181,7 +181,7 @@ usersCache.selectize(jQuery('select.UserSearch'));
         <fieldset>
            <div class="addGroupFormLabelAndInput">
             <label class="addGroupLabel" for="addGroupNameInput">{'Group name'|translate}</label>
-            <input type="text" id="addGroupNameInput" name="groupname" maxlength="50" size="20" placeholder="Photographers...">
+            <input type="text" id="addGroupNameInput" name="groupname" maxlength="50" size="20" placeholder="{'Photographers...'|translate}">
           </div>
           <div class="actionButtons">
             <button name="submit" type="submit" class="buttonLike">

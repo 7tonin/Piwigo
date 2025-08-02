@@ -7,7 +7,7 @@
 const cat_nav = '{$CATEGORIES_NAV|escape:javascript}';
 
 jQuery(document).ready(function() {
-  $("h1").append(' <span style="letter-spacing:0">'+cat_nav+'</span>');
+
 
   jQuery("input[name=who]").change(function () {
     checkWhoOptions();
@@ -96,7 +96,7 @@ span.errors {
     <p class="who_option who_users">
 {if isset($user_options)}
     <select name="users[]" multiple placeholder="{'Type in a search term'|translate}" style="width:524px;">
-      {html_options options=$user_options selected=$user_options_selected}
+      {html_options options=$user_options}
     </select>
 {else}
     {'No user is permitted to see this private album'|@translate}.
@@ -117,12 +117,24 @@ span.errors {
   </p>
 {/if}
 
-  <p class="actionButtons">
-    <button name="submitEmail" type="submit" class="buttonLike">
-      <i class="icon-mail"></i> {'Send'|translate}
-    </button>
-    <span class="errors" style="display:none">&#x2718; {'No recipient selected'|translate}</span>
-  </p>
+  <div class="savebar-footer">
+    <div class="savebar-footer-start">
+    </div>
+    <div class="savebar-footer-end">
+
+{if isset($save_success)}
+      <div class="savebar-footer-block">
+        <div class="badge info-message">
+          <i class="icon-ok"></i>{$save_success}
+        </div>
+      </div>
+{/if}
+    
+      <div class="savebar-footer-block">
+        <button class="buttonLike" type="submit" name="submitEmail"><i class="icon-mail"></i> {'Send'|@translate}</button>
+      </div>
+    </div>
+  </div>
 
 </fieldset>
 

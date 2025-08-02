@@ -157,6 +157,11 @@ function ws_addDefaultMethods( $arr )
           'default' => IMG_THUMB,
           'info' => implode(',', array_keys(ImageStdParams::get_defined_type_map()))
           ),
+        'search' => array('default' => null),
+        'limit' => array(
+          'default' => null,
+          'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE,
+          'info' => 'Parameter not compatible with recursive=true'),
         ),
       'Returns a list of categories.',
       $ws_functions_root . 'pwg.categories.php'
@@ -168,7 +173,7 @@ function ws_addDefaultMethods( $arr )
       array_merge(array(
         'types' =>        array('default'=>null,
                                 'flags'=>WS_PARAM_FORCE_ARRAY,
-                                'info'=>'square, thumb, 2small, xsmall, small, medium, large, xlarge, xxlarge'),
+                                'info'=>'square, thumb, 2small, xsmall, small, medium, large, xlarge, xxlarge, 3xlarge, 4xlarge'),
         'ids' =>          array('default'=>null,
                                 'flags'=>WS_PARAM_FORCE_ARRAY,
                                 'type'=>WS_TYPE_ID),
@@ -257,7 +262,6 @@ function ws_addDefaultMethods( $arr )
       'pwg.images.formats.searchImage',
       'ws_images_formats_searchImage',
       array(
-        'category_id' => array('type'=>WS_TYPE_ID, 'default'=>null),
         'filename_list' => array(),
         ),
       'Search for image ids matching the provided filenames. <b>filename_list</b> must be a JSON encoded associative array of unique_id:filename.<br><br>The method returns a list of unique_id:image_id.',
@@ -291,6 +295,20 @@ function ws_addDefaultMethods( $arr )
 <li>rank becomes useless, only the order of the image_id list matters</li>
 <li>you are supposed to provide the list of all image_ids belonging to the album.
 </ul>',
+      $ws_functions_root . 'pwg.images.php',
+      array('admin_only'=>true, 'post_only'=>true)
+    );
+
+  $service->addMethod(
+      'pwg.images.setCategory',
+      'ws_images_setCategory',
+      array(
+        'image_id'    => array('flags'=>WS_PARAM_FORCE_ARRAY, 'type'=>WS_TYPE_ID),
+        'category_id' => array('type'=>WS_TYPE_ID),
+        'action'      => array('default'=>'associate', 'info' => 'associate/dissociate/move'),
+        'pwg_token'   => array(),
+        ),
+      'Manage associations of images with an album. <b>action</b> can be:<ul><li><i>associate</i> : add photos to this album</li><li><i>dissociate</i> : remove photos from this album</li><li><i>move</i> : dissociate photos from any other album and adds photos to this album</li></ul>',
       $ws_functions_root . 'pwg.images.php',
       array('admin_only'=>true, 'post_only'=>true)
     );
@@ -481,6 +499,11 @@ function ws_addDefaultMethods( $arr )
           'type' => WS_TYPE_ID,
           'info' => 'id of the extended image (name/category/level are not used if format_of is provided)',
           ),
+        'update_mode' => array(
+          'default' => false,
+          'type' => WS_TYPE_BOOL,
+          'info' => 'true if the update mode is active',
+        ),
         'pwg_token' => array(),
         ),
       'Add an image.
@@ -548,9 +571,7 @@ function ws_addDefaultMethods( $arr )
       'pwg.images.syncMetadata',
       'ws_images_syncMetadata',
       array(
-        'image_id' => array('default'=>null,
-                            'type'=>WS_TYPE_ID|WS_TYPE_POSITIVE,
-                            'flags'=>WS_PARAM_FORCE_ARRAY),
+        'image_id' => array('flags'=>WS_PARAM_ACCEPT_ARRAY, 'info'=>'Comma separated ids or array of id'),
         'pwg_token' =>  array(),
         ),
       'Sync metadatas, by blocks. Returns how many images were synchronized',
@@ -586,7 +607,13 @@ function ws_addDefaultMethods( $arr )
       'pwg.categories.getAdminList',
       'ws_categories_getAdminList',
       array(
+        'cat_id' =>       array('default'=>null,
+                                'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE,
+                                'info'=>'Parent category. "0" or empty for root.'),
         'search' => array('default' => null),
+        'recursive' => array(
+          'default' => true,
+          'type' => WS_TYPE_BOOL),
         'additional_output' =>    array('default'=>null,
                               'info'=>'Comma saparated list (see method description)'),
       ),
@@ -612,8 +639,9 @@ function ws_addDefaultMethods( $arr )
         'commentable' =>  array('default'=>true,
                                 'type'=>WS_TYPE_BOOL),
         'position' =>     array('default'=>null, 'info'=>'first, last'),
+        'pwg_token' => array('flags'=>WS_PARAM_OPTIONAL),
         ),
-      'Adds an album.',
+      'Adds an album.<br><br><b>pwg_token</b> required if you want to use HTML in name/comment.',
       $ws_functions_root . 'pwg.categories.php',
       array('admin_only'=>true)
     );
@@ -807,9 +835,9 @@ function ws_addDefaultMethods( $arr )
       array(
         'image_id' => array('default'=>null, 'flags'=>WS_PARAM_ACCEPT_ARRAY),
         'pwg_token' => array(),
-        'category_id' => array('default'=>null, 'type'=>WS_TYPE_ID),
+        'category_id' => array('type'=>WS_TYPE_ID),
         ),
-      'Notifiy Piwigo you have finished to upload a set of photos. It will empty the lounge, if any.',
+      'Notify Piwigo you have finished uploading a set of photos. It will empty the lounge, if any.',
       $ws_functions_root . 'pwg.images.php',
       array('admin_only'=>true)
     );
@@ -833,11 +861,13 @@ function ws_addDefaultMethods( $arr )
                                   'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE),
         'single_value_mode' =>    array('default'=>'fill_if_empty'),
         'multiple_value_mode' =>  array('default'=>'append'),
+        'pwg_token' => array('flags'=>WS_PARAM_OPTIONAL),
         ),
       'Changes properties of an image.
 <br><b>single_value_mode</b> can be "fill_if_empty" (only use the input value if the corresponding values is currently empty) or "replace"
 (overwrite any existing value) and applies to single values properties like name/author/date_creation/comment.
-<br><b>multiple_value_mode</b> can be "append" (no change on existing values, add the new values) or "replace" and applies to multiple values properties like tag_ids/categories.',
+<br><b>multiple_value_mode</b> can be "append" (no change on existing values, add the new values) or "replace" and applies to multiple values properties like tag_ids/categories.
+<br><b>pwg_token</b> required if you want to use HTML in name/comment/author.',
       $ws_functions_root . 'pwg.images.php',
       array('admin_only'=>true, 'post_only'=>true)
     );
@@ -862,8 +892,9 @@ function ws_addDefaultMethods( $arr )
         'apply_commentable_to_subalbums' =>  array('default'=>null,
                                 'flags'=>WS_PARAM_OPTIONAL,
                                 'info'=>'If true, set commentable to all sub album'),
+        'pwg_token' => array('flags'=>WS_PARAM_OPTIONAL),
         ),
-      'Changes properties of an album.',
+      'Changes properties of an album.<br><br><b>pwg_token</b> required if you want to use HTML in name/comment.',
       $ws_functions_root . 'pwg.categories.php',
       array('admin_only'=>true, 'post_only'=>true)
     );
@@ -1102,8 +1133,17 @@ function ws_addDefaultMethods( $arr )
                               'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE),
         'order' =>      array('default'=>'id',
                               'info'=>'id, username, level, email'),
+        'exclude' =>    array('flags'=>WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+                              'type'=>WS_TYPE_ID,
+                              'info'=>'Expects a user_id as value.'),
         'display' =>    array('default'=>'basics',
                               'info'=>'Comma saparated list (see method description)'),
+        'filter' =>     array('flags'=>WS_PARAM_OPTIONAL,
+                              'info'=>'Filter by username, email, group'),
+        'min_register' => array('flags'=>WS_PARAM_OPTIONAL,
+                                 'info'=>'See method description'),
+        'max_register' => array('flags'=>WS_PARAM_OPTIONAL,
+                                'info'=>'See method description'),
         ),
       'Retrieves a list of all the users.<br>
 <br>
@@ -1112,7 +1152,8 @@ all, basics, none,<br>
 username, email, status, level, groups,<br>
 language, theme, nb_image_page, recent_period, expand, show_nb_comments, show_nb_hits,<br>
 enabled_high, registration_date, registration_date_string, registration_date_since, last_visit, last_visit_string, last_visit_since<br>
-<b>basics</b> stands for "username,email,status,level,groups"',
+<b>basics</b> stands for "username,email,status,level,groups"<br>
+<b>min_register</b> and <b>max_register</b> filter users by their registration date expecting format "YYYY" or "YYYY-mm" or "YYYY-mm-dd".',
       $ws_functions_root . 'pwg.users.php',
       array('admin_only'=>true)
     );
@@ -1122,6 +1163,11 @@ enabled_high, registration_date, registration_date_string, registration_date_sin
       'ws_users_add',
       array(
         'username' => array(),
+        'auto_password' => array(
+          'default'=>false,
+          'flags'=>WS_TYPE_BOOL, 
+          'info' => 'if true ignores password and confirm password'
+        ),
         'password' => array('default'=>null),
         'password_confirm' => array('flags'=>WS_PARAM_OPTIONAL),
         'email' =>    array('default'=>null),
@@ -1196,6 +1242,33 @@ enabled_high, registration_date, registration_date_string, registration_date_sin
       $ws_functions_root . 'pwg.users.php',
       array('admin_only'=>true, 'post_only'=>true)
     );
+
+  $service->addMethod(
+    'pwg.users.setMyInfo',
+    'ws_users_setMyInfo',
+    array(
+      'email' =>            array('flags'=>WS_PARAM_OPTIONAL),
+      'nb_image_page' =>    array('flags'=>WS_PARAM_OPTIONAL,
+                                  'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE|WS_TYPE_NOTNULL),
+      'theme' =>            array('flags'=>WS_PARAM_OPTIONAL),
+      'language' =>         array('flags'=>WS_PARAM_OPTIONAL),
+      'recent_period' =>    array('flags'=>WS_PARAM_OPTIONAL,
+                                  'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE),
+      'expand' =>           array('flags'=>WS_PARAM_OPTIONAL,
+                                  'type'=>WS_TYPE_BOOL),
+      'show_nb_comments' => array('flags'=>WS_PARAM_OPTIONAL,
+                                  'type'=>WS_TYPE_BOOL),
+      'show_nb_hits' =>     array('flags'=>WS_PARAM_OPTIONAL,
+                                  'type'=>WS_TYPE_BOOL),
+      'password' =>         array('flags'=>WS_PARAM_OPTIONAL),
+      'new_password' =>         array('flags'=>WS_PARAM_OPTIONAL),
+      'conf_new_password' =>         array('flags'=>WS_PARAM_OPTIONAL),
+      'pwg_token' => array(),
+    ),
+    '',
+    $ws_functions_root . 'pwg.users.php',
+    array('admin_only'=>false, 'post_only'=>true)
+  );
     
   $service->addMethod(
       'pwg.permissions.getList',
@@ -1312,6 +1385,7 @@ enabled_high, registration_date, registration_date_string, registration_date_sin
       'cat_id' => array('type'=>WS_TYPE_ID, 'default'=>null),
       'section' => array('default'=>null),
       'tags_string' => array('default'=>null),
+      'is_download' => array('default'=>false, 'type'=>WS_TYPE_BOOL),
       ),
     'Log visit in history',
     $ws_functions_root . 'pwg.php'
@@ -1362,6 +1436,192 @@ enabled_high, registration_date, registration_date_string, registration_date_sin
       <br> <strong>Date format</strong> is yyyy-mm-dd
       <br> <strong>display_thumbnail</strong> can be : \'no_display_thumbnail\', \'display_thumbnail_classic\', \'display_thumbnail_hoverbox\'',
       $ws_functions_root . 'pwg.php'
+    );
+
+    $service->addMethod(
+      'pwg.images.filteredSearch.create',
+      'ws_images_filteredSearch_create',
+      array(
+        'search_id' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'info' => 'prior search_id (or search_key), if any',
+        ),
+        'allwords' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'info' => 'query to search by words',
+        ),
+        'allwords_mode' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'info' => 'AND (by default) | OR',
+        ),
+        'allwords_fields' => array(
+          'flags' => WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+          'info' => 'values among [name, comment, tags, file, author, cat-title, cat-desc]',
+        ),
+        'tags' => array(
+          'flags' => WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+          'type' => WS_TYPE_ID,
+        ),
+        'tags_mode' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'info' => 'AND (by default) | OR',
+        ),
+        'categories' => array(
+          'flags' => WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+          'type' => WS_TYPE_ID,
+        ),
+        'categories_withsubs' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'type' => WS_TYPE_BOOL,
+          'info' => 'false, by default',
+        ),
+        'authors' => array(
+          'flags' => WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+        ),
+        'added_by' => array(
+          'flags' => WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+          'type' => WS_TYPE_ID,
+        ),
+        'filetypes' => array(
+          'flags' => WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+        ),
+        'date_posted_preset' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'info' => 'files posted within 24 hours, 7 days, 30 days, 3 months, 6 months or custom. Value among 24h|7d|30d|3m|6m|custom.',
+        ),
+        'date_posted_custom' => array(
+          'flags' => WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+          'info' => 'Must be provided if date_posted_preset is custom. List of yYYYY or mYYYY-MM or dYYYY-MM-DD.',
+        ),
+        'date_created_preset' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'info' => 'files created within 7 days, 30 days, 3 months, 6 months, 12 months or custom. Value among 7d|30d|3m|6m|12m|custom.',
+        ),
+        'date_created_custom' => array(
+          'flags' => WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+          'info' => 'Must be provided if date_created_preset is custom. List of yYYYY or mYYYY-MM or dYYYY-MM-DD.',
+        ),
+        'ratios' => array(
+          'flags' => WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+        ),
+        'ratings' => array(
+          'flags' => WS_PARAM_OPTIONAL|WS_PARAM_FORCE_ARRAY,
+        ),
+        'filesize_min' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE,
+        ),
+        'filesize_max' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE,
+        ),
+        'height_min' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE,
+        ),
+        'height_max' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE,
+        ),
+        'width_min' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE,
+        ),
+        'width_max' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE,
+        ),
+      ),
+      '',
+      $ws_functions_root . 'pwg.images.php'
+    );
+
+    $service->addMethod(
+      'pwg.users.generatePasswordLink',
+      'ws_users_generate_password_link',
+      array(
+        'user_id' => array(
+          'type'=>WS_TYPE_ID
+        ),
+        'pwg_token' => array(),
+        'send_by_mail' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'type' => WS_TYPE_BOOL,
+          'default' => false,
+        ),
+      ),
+      'Return the reset password link <br />
+       (Only webmaster can perform this action for another webmaster)',
+      $ws_functions_root . 'pwg.users.php',
+      array('admin_only'=>true, 'post_only'=>true)
+    );
+
+    $service->addMethod(
+      'pwg.users.setMainUser',
+      'ws_set_main_user',
+      array(
+        'user_id' => array(
+          'type'=>WS_TYPE_ID
+        ),
+        'pwg_token' => array(),
+      ),
+      'Update the main user (owner) <br />
+        - To be the main user, the user must have the status "webmaster".<br />
+        - Only a webmaster can perform this action',
+      $ws_functions_root . 'pwg.users.php',
+      array('admin_only'=>true, 'post_only'=>true)
+    );
+
+    $service->addMethod(
+      'pwg.users.api_key.create',
+      'ws_create_api_key',
+      array(
+        'key_name' => array(),
+        'duration' => array(
+          'type' => WS_TYPE_INT|WS_TYPE_POSITIVE,
+          'info' => 'Number of days',
+        ),
+        'pwg_token' => array(),
+      ),
+      'Create a new api key for the user in the current session',
+      $ws_functions_root . 'pwg.users.php',
+      array('admin_only'=>false, 'post_only'=>true)
+    );
+
+    $service->addMethod(
+      'pwg.users.api_key.revoke',
+      'ws_revoke_api_key',
+      array(
+        'pkid' => array(),
+        'pwg_token' => array(),
+      ),
+      'Revoke a api key for the user in the current session',
+      $ws_functions_root . 'pwg.users.php',
+      array('admin_only'=>false, 'post_only'=>true)
+    );
+
+    $service->addMethod(
+      'pwg.users.api_key.edit',
+      'ws_edit_api_key',
+      array(
+        'key_name' => array(),
+        'pkid' => array(),
+        'pwg_token' => array(),
+      ),
+      'Edit a api key for the user in the current session',
+      $ws_functions_root . 'pwg.users.php',
+      array('admin_only'=>false, 'post_only'=>true)
+    );
+
+    $service->addMethod(
+      'pwg.users.api_key.get',
+      'ws_get_api_key',
+      array(
+        'pwg_token' => array(),
+      ),
+      'Get all api key for the user in the current session',
+      $ws_functions_root . 'pwg.users.php',
+      array('admin_only'=>false, 'post_only'=>true)
     );
 }
 

@@ -49,14 +49,10 @@ str_are_you_sure = '{'Are you sure?'|translate|escape:javascript}';
 str_yes = '{'Yes, delete'|translate|escape:javascript}';
 str_no = '{'No, I have changed my mind'|translate|@escape:'javascript'}';
 url_delete = '{$U_DELETE}';
-str_albums_found = '{"<b>%d</b> albums found"|translate|escape:javascript}';
-str_album_found = '{"<b>1</b> album found"|translate|escape:javascript}';
-str_result_limit = '{"<b>%d+</b> albums found, try to refine the search"|translate|escape:javascript}';
 str_orphan = '{'This photo is an orphan'|@translate|escape:javascript}';
-str_no_search_in_progress = '{'No search in progress'|@translate|escape:javascript}';
+
 
 related_categories_ids = {$related_categories_ids|@json_encode};
-str_already_in_related_cats = '{'This albums is already in related categories list'|translate|escape:javascript}';
 
 {literal}
 $('#action-delete-picture').on('click', function() {
@@ -90,6 +86,7 @@ $('#action-delete-picture').on('click', function() {
 {/literal}
 
 }());
+const str_assoc_album_ab = '{'Associate to album'|translate|escape:javascript}';
 {/footer_script}
 
 {combine_script id='picture_modify' load='footer' path='admin/themes/default/js/picture_modify.js'}
@@ -102,11 +99,7 @@ $('#action-delete-picture').on('click', function() {
   <div id='picture-preview'>
 {/if}
     <div class='picture-preview-actions'>
-      {if isset($U_JUMPTO)}
-        <a class="icon-eye" href="{$U_JUMPTO}" title="{'Open in gallery'|@translate}"></a>
-      {else}
-        <a class="icon-eye unavailable" title="{'You don\'t have access to this photo'|translate}"></a>
-      {/if}
+      <a class="preview-box icon-zoom-square" href="{$FILE_SRC}" title="{'Zoom'|translate}"></a>
       <a class="icon-download" href="{$U_DOWNLOAD}" title="{'Download'|translate}"></a>
       <a class="icon-signal" href="{$U_HISTORY}" title="{'Visit history'|translate}"></a>
       {if !url_is_remote($PATH)}
@@ -114,13 +107,11 @@ $('#action-delete-picture').on('click', function() {
       <a class="icon-trash" title="{'delete photo'|@translate}" id='action-delete-picture'></a>
       {/if}
     </div>
-    <a href="{$FILE_SRC}" class="preview-box icon-zoom-in" title="{$TITLE|htmlspecialchars}" >
       {if $INTRO.is_svg}
-      <img src="{$PATH}" alt="{'Thumbnail'|translate}" class="svg-image" style="{if $FORMAT}width:100%; max-height:100%;{else}max-width:100%; height:100%;{/if}">
+      <img src="{$PATH}" alt="{'Thumbnail'|translate}" class="svg-image other-image-format" style="{if $FORMAT}width:100%; max-height:100%; {else}max-width:100%; height:100%;{/if} object-fit:contain;">
       {else}
-      <img src="{$TN_SRC}" alt="{'Thumbnail'|translate}" class="other-image-format" style="{if $FORMAT}width:100%; max-height:100%;{else}max-width:100%; height:100%;{/if}">
+      <img src="{$TN_SRC}" alt="{'Thumbnail'|translate}" class="other-image-format" style="{if $FORMAT}width:100%; max-height:100%;{else}max-width:100%; height:100%;{/if} object-fit:contain;">
       {/if}
-    </a>
   </div>
   <div id='picture-content'>
     <div id='picture-infos'>
@@ -217,7 +208,7 @@ $('#action-delete-picture').on('click', function() {
     </p>
 
     <p>
-      <strong>{'Who can see this photo?'|@translate}</strong>
+      <strong>{'Who can see this photo?'|@translate}</strong> ({'Privacy level'|translate})
       <br>
       <div class='select-icon icon-down-open'> </div>
       <select name="level" size="1">
@@ -225,18 +216,38 @@ $('#action-delete-picture').on('click', function() {
       </select>
    </p>
 
-    <p>
+   <div class="savebar-footer">
+      <div class="savebar-footer-start">
+        <div class="savebar-footer-block">
+{if isset($U_JUMPTO)}
+          <a class="savebar-see-out" href="{$U_JUMPTO}" ><i class="icon-left-open"></i>{'Open in gallery'|@translate}</a>
+{else}
+          <a class="savebar-see-out tiptip disabled" href="#" title="{'You don\'t have access to this photo'|translate}"><i class="icon-left-open"></i>{'Open in gallery'|translate}</a>
+{/if}
+        </div>
+      </div>
+      <div class="savebar-footer-end">
+
+{if isset($save_success)}
+        <div class="savebar-footer-block">
+          <div class="badge info-message">
+            <i class="icon-ok"></i>{$save_success}
+          </div>
+        </div>
+{/if}
+
+        <div class="savebar-footer-block">
+          <button class="buttonLike"  type="submit" name="submit"><i class="icon-floppy"></i> {'Save Settings'|@translate}</button>
+        </div>
+      </div>
       <input type="hidden" name="pwg_token" value="{$PWG_TOKEN}">
-      <input class="submit" type="submit" value="{'Save Settings'|@translate}" name="submit">
-    </p>
+    </div>
+    
   </div>
 
 </form>
 
-{include file='include/album_selector.inc.tpl' 
-  title={'Associate to album'|@translate}
-  searchPlaceholder={'Search'|@translate}
-}
+{include file='include/album_selector.inc.tpl'}
 
 <style>
 .selectize-input  .item,

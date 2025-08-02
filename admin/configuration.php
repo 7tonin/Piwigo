@@ -49,6 +49,8 @@ $main_checkboxes = array(
     'history_guest',
     'show_mobile_app_banner_in_gallery',
     'show_mobile_app_banner_in_admin',
+    'upload_detect_duplicate',
+    'use_standard_pages',
    );
 
 $sizes_checkboxes = array(
@@ -72,6 +74,8 @@ $comments_checkboxes = array(
 
 $display_checkboxes = array(
     'menubar_filter_icon',
+    'index_search_in_set_button',
+    'index_search_in_set_action',
     'index_sort_order_input',
     'index_flat_icon',
     'index_posted_date_icon',
@@ -106,7 +110,6 @@ $display_info_checkboxes = array(
     'categories',
     'visits',
     'rating_score',
-    'privacy_level',
   );
 
 // image order management
@@ -303,7 +306,12 @@ WHERE param = \''.$row['param'].'\'
         pwg_query($query);
       }
     }
-    $page['infos'][] = l10n('Information data registered in database');
+    $template->assign(
+      array(
+        'save_success' => l10n('Your configuration settings are saved'),
+      )
+    );
+
     pwg_activity('system', ACTIVITY_SYSTEM_CORE, 'config', array('config_section'=>$page['section']));
   }
 
@@ -318,7 +326,12 @@ if ('sizes' == $page['section'] and isset($_GET['action']) and 'restore_settings
   pwg_query('DELETE FROM '.CONFIG_TABLE.' WHERE param = \'disabled_derivatives\'');
   clear_derivative_cache();
 
-  $page['infos'][] = l10n('Your configuration settings are saved');
+  $template->assign(
+    array(
+      'save_success' => l10n('Your configuration settings are saved'),
+    )
+  );
+  
   pwg_activity('system', ACTIVITY_SYSTEM_CORE, 'config', array('config_section'=>$page['section'],'config_action'=>$_GET['action']));
 }
 
@@ -402,7 +415,7 @@ switch ($page['section'])
     SELECT
         id,
         name
-      FROM '.GROUPS_TABLE.'
+      FROM `'.GROUPS_TABLE.'`
     ;';
     $groups = query2array($query, 'id', 'name');
     natcasesort($groups);

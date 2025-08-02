@@ -22,7 +22,7 @@ check_status(ACCESS_FREE);
 
 trigger_notify('loc_begin_password');
 
-check_input_parameter('action', $_GET, false, '/^(lost|reset|none)$/');
+check_input_parameter('action', $_GET, false, '/^(lost|reset|lost_end|reset_end|none)$/');
 
 // +-----------------------------------------------------------------------+
 // | Functions                                                             |
@@ -40,7 +40,7 @@ function process_password_request()
   
   if (empty($_POST['username_or_email']))
   {
-    $page['errors'][] = l10n('Invalid username or email');
+    $page['errors']['password_form_error'] = l10n('Invalid username or email');
     return false;
   }
   
@@ -53,7 +53,7 @@ function process_password_request()
 
   if (!is_numeric($user_id))
   {
-    $page['errors'][] = l10n('Invalid username or email');
+    $page['errors']['password_form_error'] = l10n('Invalid username or email');
     return false;
   }
 
@@ -63,66 +63,36 @@ function process_password_request()
   $status = $userdata['status'];
   if (is_a_guest($status) or is_generic($status))
   {
-    $page['errors'][] = l10n('Password reset is not allowed for this user');
+    $page['errors']['password_form_error'] = l10n('Password reset is not allowed for this user');
     return false;
   }
 
   if (empty($userdata['email']))
   {
-    $page['errors'][] = l10n(
+    $page['errors']['password_form_error'] = l10n(
       'User "%s" has no email address, password reset is not possible',
       $userdata['username']
       );
     return false;
   }
 
-  $activation_key = generate_key(20);
-
-  list($expire) = pwg_db_fetch_row(pwg_query('SELECT ADDDATE(NOW(), INTERVAL 1 HOUR)'));
-
-  single_update(
-    USER_INFOS_TABLE,
-    array(
-      'activation_key' => pwg_password_hash($activation_key),
-      'activation_key_expire' => $expire,
-      ),
-    array('user_id' => $user_id)
-    );
+  $generate_link = generate_password_link($user_id);
   
-  $userdata['activation_key'] = $activation_key;
+  // $userdata['activation_key'] = $generate_link['activation_key'];
 
-  set_make_full_url();
-  
-  $message = l10n('Someone requested that the password be reset for the following user account:') . "\r\n\r\n";
-  $message.= l10n(
-    'Username "%s" on gallery %s',
-    $userdata['username'],
-    get_gallery_home_url()
-    );
-  $message.= "\r\n\r\n";
-  $message.= l10n('To reset your password, visit the following address:') . "\r\n";
-  $message.= get_root_url().'password.php?key='.$activation_key.'-'.urlencode($userdata['email']);
-  $message.= "\r\n\r\n";
-  $message.= l10n('If this was a mistake, just ignore this email and nothing will happen.')."\r\n";
+  switch_lang_to($userdata['language']);
+  $email_params = pwg_generate_reset_password_mail($userdata['username'], $generate_link['password_link'], $conf['gallery_title'], $generate_link['time_validation']);
+  $send_email = pwg_mail($userdata['email'], $email_params);
+  switch_lang_back();
 
-  unset_make_full_url();
-
-  $message = trigger_change('render_lost_password_mail_content', $message);
-
-  $email_params = array(
-    'subject' => '['.$conf['gallery_title'].'] '.l10n('Password Reset'),
-    'content' => $message,
-    'email_format' => 'text/plain',
-    );
-
-  if (pwg_mail($userdata['email'], $email_params))
+  if ($send_email)
   {
     $page['infos'][] = l10n('Check your email for the confirmation link');
     return true;
   }
   else
   {
-    $page['errors'][] = l10n('Error sending email');
+    $page['errors']['password_page_error'] = l10n('Error sending email');
     return false;
   }
 }
@@ -137,67 +107,41 @@ function check_password_reset_key($reset_key)
 {
   global $page, $conf;
 
-  list($key, $email) = explode('-', $reset_key, 2);
-
+  $key = $reset_key;
   if (!preg_match('/^[a-z0-9]{20}$/i', $key))
   {
-    $page['errors'][] = l10n('Invalid key');
+    $page['errors']['password_page_error'] = l10n('Invalid key');
     return false;
   }
 
-  $user_ids = array();
-  
-  $query = '
-SELECT
-  '.$conf['user_fields']['id'].' AS id
-  FROM '.USERS_TABLE.'
-  WHERE '.$conf['user_fields']['email'].' = \''.pwg_db_real_escape_string($email).'\'
-;';
-  $user_ids = query2array($query, null, 'id');
-
-  if (count($user_ids) == 0)
-  {
-    $page['errors'][] = l10n('Invalid username or email');
-    return false;
-  }
-
-  $user_id = null;
-  
   $query = '
 SELECT
     user_id,
     status,
-    activation_key,
-    activation_key_expire,
-    NOW() AS dbnow
+    activation_key
   FROM '.USER_INFOS_TABLE.'
-  WHERE user_id IN ('.implode(',', $user_ids).')
+  WHERE activation_key IS NOT NULL
+    AND activation_key_expire > NOW()
 ;';
   $result = pwg_query($query);
   while ($row = pwg_db_fetch_assoc($result))
   {
     if (pwg_password_verify($key, $row['activation_key']))
     {
-      if (strtotime($row['dbnow']) > strtotime($row['activation_key_expire']))
-      {
-        // key has expired
-        $page['errors'][] = l10n('Invalid key');
-        return false;
-      }
-
       if (is_a_guest($row['status']) or is_generic($row['status']))
       {
-        $page['errors'][] = l10n('Password reset is not allowed for this user');
+        $page['errors']['password_page_error'] = l10n('Password reset is not allowed for this user');
         return false;
       }
 
       $user_id = $row['user_id'];
+      break;
     }
   }
 
   if (empty($user_id))
   {
-    $page['errors'][] = l10n('Invalid key');
+    $page['errors']['password_page_error'] = l10n('Invalid key');
     return false;
   }
   
@@ -216,13 +160,13 @@ function reset_password()
 
   if ($_POST['use_new_pwd'] != $_POST['passwordConf'])
   {
-    $page['errors'][] = l10n('The passwords do not match');
+    $page['errors']['password_form_error'] = l10n('The passwords do not match');
     return false;
   }
 
   if (!isset($_GET['key']))
   {
-    $page['errors'][] = l10n('Invalid key');
+    $page['errors']['password_page_error'] = l10n('Invalid key');
   }
   
   $user_id = check_password_reset_key($_GET['key']);
@@ -258,7 +202,7 @@ if (isset($_POST['submit']))
   {
     if (process_password_request())
     {
-      $page['action'] = 'none';
+      $page['action'] = 'lost_end';
     }
   }
 
@@ -266,7 +210,7 @@ if (isset($_POST['submit']))
   {
     if (reset_password())
     {
-      $page['action'] = 'none';
+      $page['action'] = 'reset_end';
     }
   }
 }
@@ -283,12 +227,14 @@ if (isset($_GET['key']) and !is_a_guest())
 
 if (isset($_GET['key']) and !isset($_POST['submit']))
 {
+  $first_login = false;
   $user_id = check_password_reset_key($_GET['key']);
   if (is_numeric($user_id))
   {
     $userdata = getuserdata($user_id, false);
     $page['username'] = $userdata['username'];
     $template->assign('key', $_GET['key']);
+    $first_login = has_already_logged_in($user_id);
 
     if (!isset($page['action']))
     {
@@ -326,7 +272,6 @@ if ('lost' == $page['action'] and !is_a_guest())
 // +-----------------------------------------------------------------------+
 // | template initialization                                               |
 // +-----------------------------------------------------------------------+
-
 $title = l10n('Password Reset');
 if ('lost' == $page['action'])
 {
@@ -337,10 +282,15 @@ if ('lost' == $page['action'])
     $template->assign('username_or_email', htmlspecialchars(stripslashes($_POST['username_or_email'])));
   }
 }
+else if ('reset' == $page['action'] and isset($first_login) and $first_login) 
+{
+  $title = l10n('Welcome');
+  $template->assign('is_first_login', true);
+}
 
 $page['body_id'] = 'thePasswordPage';
 
-$template->set_filenames(array('password'=>'password.tpl'));
+$template->set_filenames( array('password'=>'password.tpl') );
 $template->assign(
   array(
     'title' => $title,
@@ -351,13 +301,48 @@ $template->assign(
     )
   );
 
-
 // include menubar
 $themeconf = $template->get_template_vars('themeconf');
 if (!isset($themeconf['hide_menu_on']) OR !in_array('thePasswordPage', $themeconf['hide_menu_on']))
 {
   include( PHPWG_ROOT_PATH.'include/menubar.inc.php');
 }
+
+//Load language if cookie is set from login/register/password pages
+if (isset($_COOKIE['lang']) and $user['language'] != $_COOKIE['lang'])
+{
+  if (!array_key_exists($_COOKIE['lang'], get_languages()))
+  {
+    fatal_error('[Hacking attempt] the input parameter "'.$_COOKIE['lang'].'" is not valid');
+  }
+  
+  $user['language'] = $_COOKIE['lang'];
+  load_language('common.lang', '', array('language'=>$user['language']));
+}
+
+//Get list of languages
+foreach (get_languages() as $language_code => $language_name)
+{
+  $language_options[$language_code] = $language_name;
+}
+
+$template->assign(array(
+  'language_options' => $language_options,
+  'current_language' => $user['language']
+));
+
+//Get link to doc
+if ('fr' == substr($user['language'], 0, 2))
+{
+  $help_link = "https://doc-fr.piwigo.org/les-utilisateurs/se-connecter-a-piwigo";
+}
+else
+{
+  $help_link = "https://doc.piwigo.org/managing-users/log-in-to-piwigo";
+}
+
+$template->assign('HELP_LINK', $help_link);
+
 
 // +-----------------------------------------------------------------------+
 // |                           html code display                           |

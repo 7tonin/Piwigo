@@ -39,13 +39,21 @@
 // $conf['order_by_inside_category_custom'] = $conf['order_by_custom'];
 
 // picture_ext : file extensions for picture file, must be a subset of
-// file_ext
-$conf['picture_ext'] = array('jpg','jpeg','png','gif');
+// file_ext.
+//
+// Specific note for SVG support: do not add 'svg' in picture_ext, have it only
+// in file_ext
+$conf['picture_ext'] = array('jpg','jpeg','png','gif','webp');
 
 // file_ext : file extensions (case sensitive) authorized
+//
+// * if you enable "eps" file extension, make sure you have this file type
+//   authorized in your ImageMagick policy
+// * do not forget to set $conf['upload_form_all_types'] = true; if you want
+//   to permit upload of file_ext files
 $conf['file_ext'] = array_merge(
   $conf['picture_ext'],
-  array('tiff', 'tif', 'mpg','zip','avi','mp3','ogg','pdf','svg')
+  array('tiff', 'tif', 'mpg','zip','avi','mp3','ogg','pdf','svg', 'heic')
   );
 
 // enable_formats: should Piwigo search for multiple formats?
@@ -270,6 +278,12 @@ $conf['update_notify_check_period'] = 24*60*60;
 // we send it again? 0 to disable.
 $conf['update_notify_reminder_period'] = 7*24*60*60;
 
+// once a week, Piwigo *anonymously* sends technical data and general
+// statistics, such as number of photos or list of plugins used. It helps
+// piwigo.org to know better how Piwigo is used. This way developers can
+// focus on features that matter most.
+$conf['send_piwigo_infos'] = true;
+
 // should the album description be displayed on all pages (value=true) or
 // only the first page (value=false)
 $conf['album_description_on_all_pages'] = false;
@@ -286,6 +300,10 @@ $conf['linked_album_search_limit'] = 100;
 // administration page.
 // 0 to disable.
 $conf['fs_quick_check_period'] = 24*60*60;
+
+// This corresponds to the treshold where we no longer display the web browsers
+// PDF viewer. In MB (megabytes).
+$conf['pdf_viewer_filesize_threshold'] = 5;
 
 // +-----------------------------------------------------------------------+
 // |                                 email                                 |
@@ -443,6 +461,34 @@ $conf['session_use_ip_address'] = true;
 $conf['session_gc_probability'] = 1;
 
 // +-----------------------------------------------------------------------+
+// |                               api key                                 |
+// +-----------------------------------------------------------------------+
+
+// api_key_duration: available duration options (in days) for API key creation.
+// Array of predefined durations that will be displayed in the select dropdown
+// when creating a new API key. Use 'custom' to allow users to set a specific
+// expiration date with a date picker input.
+$conf['api_key_duration'] = ['30', '90', '180', '365', 'custom'];
+
+// The following API methods are prohibited when making requests with an API key.
+// These restrictions are in place for security reasons and to prevent unauthorized
+// access to sensitive operations that require higher-level authentication.
+$conf['api_key_forbidden_methods'] = array(
+  // users
+  'pwg.users.generatePasswordLink',
+  'pwg.users.getAuthKey',
+  'pwg.users.setMainUser',
+  'pwg.users.setInfo',
+  // plugins
+  'pwg.plugins.performAction',
+  // themes
+  'pwg.themes.performAction',
+  // extensions
+  'pwg.extensions.ignoreUpdate',
+  'pwg.extensions.update',
+);
+
+// +-----------------------------------------------------------------------+
 // |                            debug/performance                          |
 // +-----------------------------------------------------------------------+
 
@@ -576,13 +622,18 @@ $conf['default_user_id'] = $conf['guest_id'];
 // if language isn't available PHPWG_DEFAULT_LANGUAGE is used as previously
 $conf['browser_language'] = true;
 
-// webmaster_id : webmaster'id.
-$conf['webmaster_id'] = 1;
-
 // does the guest have access ?
 // (not a security feature, set your categories "private" too)
 // If false it'll be redirected from index.php to identification.php
 $conf['guest_access'] = true;
+
+// password_reset_duration : defines the validity duration (in seconds) of a 
+// password reset link. Default value is one hour (3600 seconds).
+$conf['password_reset_duration'] = 60*60;
+
+// password_activation_duration : defines the validity duration (in seconds) 
+// of an password activation link. Default value is 72 hours (259200 seconds).
+$conf['password_activation_duration'] = 3*24*60*60;
 
 // +-----------------------------------------------------------------------+
 // |                               history                                 |
@@ -615,7 +666,7 @@ $conf['gallery_url'] = null;
 // (depends on the server AcceptPathInfo directive configuration)
 $conf['question_mark_in_urls'] = true;
 
-// php_extension_in_urls : if true, the urls generated for picture and
+// php_extension_in_urls : if false, the urls generated for picture and
 // category will not contain the .php extension. This will work only if
 // .htaccess defines Options +MultiViews parameter or url rewriting rules
 // are active.
@@ -921,6 +972,10 @@ $conf['derivative_default_size'] = 'medium';
 // below which size (in pixels, ie width*height) do we remove metadata
 // EXIF/IPTC... from derivative?
 $conf['derivatives_strip_metadata_threshold'] = 256000;
+
+// For animated webP files, to avoid heavy derivatives, set a specific quality,
+// different from derivatives.resize_quality
+$conf['animated_webp_compression_quality'] = 70;
 
 //Maximum Ajax requests at once, for thumbnails on-the-fly generation
 $conf['max_requests']=3;

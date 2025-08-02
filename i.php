@@ -236,7 +236,7 @@ function parse_request()
     {
       ierror('Invalid crop', 400);
     }
-    $greatest = ImageStdParams::get_by_type(IMG_XXLARGE);
+    $greatest = ImageStdParams::get_by_type(IMG_4XLARGE);
 
     $key = array();
     $params->add_url_tokens($key);
@@ -359,6 +359,7 @@ function send_derivative($expires)
     case ".jpe": case ".jpeg": case ".jpg": $ctype="image/jpeg"; break;
     case ".png": $ctype="image/png"; break;
     case ".gif": $ctype="image/gif"; break;
+    case ".webp": $ctype="image/webp"; break;
   }
   header("Content-Type: $ctype");
 

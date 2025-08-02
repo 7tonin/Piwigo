@@ -347,8 +347,24 @@ DELETE FROM '. RATE_TABLE .'
  */
 function ws_session_login($params, &$service)
 {
-  if (try_log_user($params['username'], $params['password'], false))
+  if (defined('PWG_API_KEY_REQUEST'))
   {
+    return new PwgError(401, 'Cannot use this method with an api key');
+  }
+
+  if (preg_match('/^pkid-\d{8}-[a-z0-9]{20}$/i', $params['username']))
+  {
+    $secret = pwg_db_real_escape_string($params['password']);
+    $authenticate = auth_key_login($params['username'].':'.$secret);
+    if ($authenticate)
+    {
+      $_SESSION['connected_with'] = 'ws_session_login_api_key';
+      return true;
+    }
+  }
+  else if (try_log_user($params['username'], $params['password'], false))
+  {
+    $_SESSION['connected_with'] = 'ws_session_login';
     return true;
   }
   return new PwgError(999, 'Invalid username/password');
@@ -362,6 +378,11 @@ function ws_session_login($params, &$service)
  */
 function ws_session_logout($params, &$service)
 {
+  if (defined('PWG_API_KEY_REQUEST'))
+  {
+    return new PwgError(401, 'Cannot use this method with an api key');
+  }
+
   if (!is_a_guest())
   {
     logout_user();
@@ -389,6 +410,15 @@ function ws_session_getStatus($params, &$service)
   list($dbnow) = pwg_db_fetch_row(pwg_query('SELECT NOW();'));
   $res['current_datetime'] = $dbnow;
   $res['version'] = PHPWG_VERSION;
+  $res['save_visits'] = do_log();
+  $res['connected_with'] = $_SESSION['connected_with'] ?? null;
+
+  // Piwigo Remote Sync does not support receiving the new (version 14) output "save_visits"
+  if (isset($_SERVER['HTTP_USER_AGENT']) and preg_match('/^PiwigoRemoteSync/', $_SERVER['HTTP_USER_AGENT']))
+  {
+    unset($res['save_visits']);
+    unset($res['connected_with']);
+  }
 
   // Piwigo Remote Sync does not support receiving the available sizes
   $piwigo_remote_sync_agent = 'Apache-HttpClient/';
@@ -614,7 +644,21 @@ function ws_history_log($params, &$service)
     $page['tag_ids'] = explode(',', $params['tags_string']);
   }
 
-  pwg_log($params['image_id'], 'picture');
+  // when visiting a photo (which is currently, in version 14, the only event registered
+  // by pwg.history.log) we should also increment images.hit
+  if (!empty($params['image_id']))
+  {
+    include_once(PHPWG_ROOT_PATH.'include/functions_picture.inc.php');
+    increase_image_visit_counter($params['image_id']);
+  }
+
+  $image_type = 'picture';
+  if ($params['is_download'])
+  {
+    $image_type = 'high';
+  }
+
+  pwg_log($params['image_id'], $image_type);
 }
 
 /**
@@ -777,6 +821,7 @@ SELECT rules
   $category_ids = array();
   $image_ids = array();
   $has_tags = false;
+  $search_ids = array();
 
   foreach ($data as $row)
   {
@@ -797,10 +842,51 @@ SELECT rules
       $has_tags = true;
     }
 
+    if (isset($row['search_id']))
+    {
+      array_push($search_ids, $row['search_id']);
+    }
+
     $history_lines[] = $row;
   }
 
   // prepare reference data (users, tags, categories...)
+  if (count($search_ids) > 0)
+  {
+    $query = '
+SELECT
+    id,
+    rules
+  FROM '.SEARCH_TABLE.'
+  WHERE id IN ('.implode(',', $search_ids).')
+;';
+    $search_details = query2array($query, 'id', 'rules');
+    
+    foreach ($search_details as $id_search => $rules_search)
+    {
+      $rules_search = safe_unserialize($rules_search)['fields'];
+      if (!empty($rules_search['tags']['words']))
+      {
+        $has_tags = true;
+      }
+
+      if (!empty($rules_search['cat']['words']))
+      {
+        $category_ids = array_merge($category_ids, $rules_search['cat']['words']);
+      }
+
+      if(!empty($rules_search['added_by']))
+      {
+        foreach ($rules_search['added_by'] as $key)
+        {
+          $user_ids[$key] = 1;
+        }
+      }
+
+      $search_details[$id_search] = $rules_search;
+    }
+  }
+
   if (count($user_ids) > 0)
   {
     $query = '
@@ -912,6 +998,7 @@ SELECT
       continue;
     }
 
+    $user_name = '#unknown';
     $user_string = '';
     if (isset($username_of[$line['user_id']]))
     {
@@ -989,6 +1076,23 @@ SELECT
       .'" alt="'.$image_title.'" title="'.$image_title.'">';
     }
 
+    if (isset($line['search_id']))
+    { 
+      $search_detail = array(
+        'allwords' => !empty($search_details[$line['search_id']]['allwords']['words']) ? $search_details[$line['search_id']]['allwords']['words'] : null,
+        'tags' => !empty($search_details[$line['search_id']]['tags']['words']) ? array_intersect_key($name_of_tag, array_flip($search_details[$line['search_id']]['tags']['words'])) : null,
+        'date_posted' => !empty($search_details[$line['search_id']]['date_posted']) ? $search_details[$line['search_id']]['date_posted'] : null,
+        'cat' => !empty($search_details[$line['search_id']]['cat']['words']) ? array_intersect_key($name_of_category, array_flip($search_details[$line['search_id']]['cat']['words'])) : null,
+        'author' => !empty($search_details[$line['search_id']]['author']['words']) ? $search_details[$line['search_id']]['author']['words'] : null,
+        'added_by' => !empty($search_details[$line['search_id']]['added_by']) ? array_intersect_key($username_of, array_flip($search_details[$line['search_id']]['added_by'])) : null,
+        'filetypes' => !empty($search_details[$line['search_id']]['filetypes']) ? $search_details[$line['search_id']]['filetypes'] : null,
+      );
+    }
+    else
+    {
+      $search_detail = null;
+    }
+
     @$sorted_members[$user_name] += 1;
 
     array_push( 
@@ -1008,8 +1112,10 @@ SELECT
         'SECTION'    => $line['section'],
         'FULL_CATEGORY_PATH'   => isset($full_cat_path[$line['category_id']]) ? strip_tags($full_cat_path[$line['category_id']]) : l10n('Root').$line['category_id'],
         'CATEGORY'   => isset($name_of_category[$line['category_id']]) ? $name_of_category[$line['category_id']] : l10n('Root').$line['category_id'],
+        'SEARCH_ID'  => $line['search_id'] ?? null,
         'TAGS'       => explode(",",$tag_names),
         'TAGIDS'     => explode(",",$tag_ids),
+        'SEARCH_DETAILS'  => $search_detail,
       )
     );
   }
@@ -1068,4 +1174,5 @@ SELECT
     'summary' => $search_summary
   );
 }
+
 ?>

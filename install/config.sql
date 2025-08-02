@@ -75,3 +75,8 @@ INSERT INTO piwigo_config (param,value) VALUES ('picture_caddie_icon','true');
 INSERT INTO piwigo_config (param,value) VALUES ('picture_representative_icon','true');
 INSERT INTO piwigo_config (param,value) VALUES ('show_mobile_app_banner_in_admin','true');
 INSERT INTO piwigo_config (param,value) VALUES ('show_mobile_app_banner_in_gallery','false');
+INSERT INTO piwigo_config (param,value) VALUES ('index_search_in_set_button','false');
+INSERT INTO piwigo_config (param,value) VALUES ('index_search_in_set_action','true');
+INSERT INTO piwigo_config (param,value) VALUES ('upload_detect_duplicate','true');
+INSERT INTO piwigo_config (param,value) VALUES ('webmaster_id','1');
+INSERT INTO piwigo_config (param,value) VALUES ('use_standard_pages','true');

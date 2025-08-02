@@ -243,6 +243,28 @@ jQuery("input[name='email_admin_on_new_user_filter']").change(function() {
       </li>
 
       <li>
+        <label class="font-checkbox">
+          <span class="icon-check"></span>
+          <input type="checkbox" name="upload_detect_duplicate" {if ($main.upload_detect_duplicate)}checked="checked"{/if}>
+          {'Detect and avoid duplicates during upload'|translate}
+        </label>
+
+        <span class="icon-help-circled tiptip" title="{'During upload, if Piwigo detects the photo already exists, associate the existing photo to the destination album, without duplicating file'|translate}" style="cursor:help"></span>
+      </li>
+
+      <li>
+        <label class="font-checkbox">
+          <span class="icon-check"></span>
+          <input type="checkbox" name="use_standard_pages" {if ($main.use_standard_pages)}checked="checked"{/if}>
+            {'Use standard Piwigo template for common pages.'|translate}
+        </label>
+
+        <span class="icon-help-circled tiptip" title="{'When enabled, a common template is used for the login, registration and forgotten password pages, regardless of the theme. Some themes might use these templates even if you uncheck this option'|translate}" style="cursor:help"></span>
+      </li>
+
+
+
+      <li>
         <label>{'Mail theme'|translate}</label>
 
         <div class="themeBoxes font-checkbox">
@@ -269,11 +291,22 @@ jQuery("input[name='email_admin_on_new_user_filter']").change(function() {
 
 </div> <!-- configContent -->
 
-<p class="formButtons">
-  <button name="submit" type="submit" class="buttonLike" {if $isWebmaster != 1}disabled{/if}>
-    <i class="icon-floppy"></i> {'Save Settings'|@translate}
-  </button>
-</p>
+<div class="savebar-footer">
+  <div class="savebar-footer-start">
+  </div>
+  <div class="savebar-footer-end">
+{if isset($save_success)}
+    <div class="savebar-footer-block">
+      <div class="badge info-message">
+        <i class="icon-ok"></i>{$save_success}
+      </div>
+    </div>
+{/if}
+    <div class="savebar-footer-block">
+      <button class="buttonLike"  type="submit" name="submit" {if $isWebmaster != 1}disabled{/if}><i class="icon-floppy"></i> {'Save Settings'|@translate}</button>
+    </div>
+  </div>
+  <input type="hidden" name="pwg_token" value="{$PWG_TOKEN}">
+</div>
 
-<input type="hidden" name="pwg_token" value="{$PWG_TOKEN}">
 </form>

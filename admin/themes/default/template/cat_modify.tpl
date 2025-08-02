@@ -18,6 +18,7 @@ const nb_sub_albums = {$NB_SUBCATS}
 const pwg_token = '{$PWG_TOKEN}'
 const u_delete = '{$U_DELETE}'
 var is_visible = '{$IS_VISIBLE}'
+let related_categories_ids = ["{$CAT_ID}", "{$PARENT_CAT_ID}"];
 
 const str_cancel = '{'No, I have changed my mind'|@translate|@escape}'
 const str_delete_album = '{'Delete album'|@translate|escape:javascript}'
@@ -28,32 +29,24 @@ const str_dont_delete_photos = '{'delete only album, not photos'|@translate|esca
 const str_delete_orphans = '{'delete album and the %d orphan photos'|@translate|escape:javascript}';
 const str_delete_all_photos = '{'delete album and all %d photos, even the %d associated to other albums'|@translate|escape:javascript}';
 
-str_albums_found = '{"<b>%d</b> albums found"|translate}';
-str_album_found = '{"<b>1</b> album found"|translate}';
-str_result_limit = '{"<b>%d+</b> albums found, try to refine the search"|translate|escape:javascript}';
-str_orphan = '{'This photo is an orphan'|@translate}';
-str_no_search_in_progress = '{'No search in progress'|@translate}';
-str_already_in_related_cats = '{'This albums is already in related categories list'|@translate}';
-str_album_comment_allow = '{'Comments allowed for sub-albums'|@translate}';
-str_album_comment_disallow = '{'Comments disallowed for sub-albums'|@translate}';
-str_root = '{'Root'|@translate}';
+str_orphan = '{'This photo is an orphan'|@translate|escape:javascript}';
+str_album_comment_allow = '{'Comments allowed for sub-albums'|@translate|escape:javascript}';
+str_album_comment_disallow = '{'Comments disallowed for sub-albums'|@translate|escape:javascript}';
+const str_modal_ab = '{'New parent album'|@translate}';
 {/footer_script}
 
-<div class="cat-modify">
+<div class="cat-modify" id="cat-modify">
 
   <div class="cat-modify-header">
     <div class="cat-modify-ariane">
-    <a class="icon-sitemap tiptip" href="{$U_MOVE}" title="{'Manage sub-albums'|@translate}"></a>
+    <span class="icon-home"> /</span>
       {$CATEGORIES_NAV}
     </div>
 
     <div class="cat-modify-actions">
-      {if cat_admin_access($CAT_ID)}
-        <a class="icon-eye tiptip" href="{$U_JUMPTO}" title="{'Open in gallery'|@translate}"></a>
-      {/if}
 
       {if isset($U_MANAGE_ELEMENTS) }
-        <a class="icon-picture tiptip" href="{$U_MANAGE_ELEMENTS}" title="{'Manage album photos'|@translate}"></a>
+        <a class="icon-th tiptip" href="{$U_MANAGE_ELEMENTS}" title="{'Manage album photos'|@translate}"></a>
       {/if}
 
       <a class="icon-plus-circled tiptip" href="{$U_ADD_PHOTOS_ALBUM}" title="{'Add Photos'|translate}"></a>
@@ -86,8 +79,8 @@ str_root = '{'Root'|@translate}';
     <div class="cat-modify-infos">
       <div class="cat-modify-info-card cat-creation">
         <span class="cat-modify-info-title">{'Created'|@translate}</span>
-        <span class="cat-modify-info-content">{$INFO_CREATION_SINCE}</span>
-        <span class="cat-modify-info-subcontent">{$INFO_CREATION}</span>
+        <span class="cat-modify-info-content">{if isset($INFO_CREATION_SINCE)}{$INFO_CREATION_SINCE}{else}{'unknown'|translate}{/if}</span>
+        <span class="cat-modify-info-subcontent">{if isset($INFO_CREATION)}{$INFO_CREATION}{else}{'Unknown time period'|translate}{/if}</span>
       </div>
       <div class="cat-modify-info-card cat-modification">
         <span class="cat-modify-info-title">{'Modified'|@translate}</span>
@@ -107,7 +100,8 @@ str_root = '{'Root'|@translate}';
       {if isset($U_SYNC) }
       <div class="cat-modify-info-card">
         <span class="cat-modify-info-title">{'Directory'}</span>
-        <span class="cat-modify-info-content">{$CAT_FULL_DIR}</span>
+        <span class="cat-modify-info-content directory" title="{$CAT_DIR_NAME}">{$CAT_DIR_NAME}</span>
+        <span class="cat-modify-info-subcontent directory" title="{$CAT_FULL_DIR}">{$CAT_MIN_DIR}</span>
       </div>
       {/if}
     </div>
@@ -142,8 +136,8 @@ str_root = '{'Root'|@translate}';
       </div>
 
       <div class="cat-modify-input-container">
-        <label for="cat-comment">{'Description'|@translate}</label>
-        <textarea resize="false" rows="5" name="comment" id="cat-comment">{$CAT_COMMENT}</textarea>
+        <label for="cat-comment">{'Description'|@translate} <span id="desc-zoom-square" class="icon-resize-full tiptip" title="{'Expand'|@translate}"></span></label>
+        <textarea class="sync-textarea" resize="false" rows="5" name="comment" id="cat-comment">{$CAT_COMMENT}</textarea>
       </div>
 
       <div class="cat-modify-input-container">
@@ -151,11 +145,7 @@ str_root = '{'Root'|@translate}';
         <div class="icon-pencil" id="cat-parent">{$CATEGORIES_PARENT_NAV}</div>
       </div>
 
-      {include file='include/album_selector.inc.tpl' 
-        title={'New parent album'|@translate}
-        searchPlaceholder={'Search'|@translate}
-        show_root_btn=true
-      }
+      {include file='include/album_selector.inc.tpl'}
 
       {if isset($CAT_COMMENTABLE)}
       <div class="cat-modify-switch-container">
@@ -183,13 +173,36 @@ str_root = '{'Root'|@translate}';
   </div>
 
   <div class="cat-modify-footer">
+   <div class="cat-modify-footer-start">
+    {if cat_admin_access($CAT_ID)}
+      <a class="cat-modify-footer-see-out" href="{$U_JUMPTO}"><i class="icon-left-open"></i>{'Open in gallery'|translate}</a>
+    {else}
+    <a class="tiptip cat-modify-footer-see-out disabled" title="{'ACCESS_5'|translate}" href="#"><i class="icon-left-open"></i>{'Open in gallery'|translate}</a>
+    {/if}
+   </div>
+   <div class="cat-modify-footer-end">
     <div class="info-message icon-ok">{'Album updated'|@translate}</div>
     <div class="info-error icon-cancel">{'An error has occured while saving album settings'|@translate}</div>
     <span class="buttonLike" id="cat-properties-save"><i class="icon-floppy"></i> {'Save Settings'|@translate}</span>
+   </div>
+  </div>
+  <div class="desc-modal" id="desc-modal">
+    <div class="desc-modal-content">
+      <div class="desc-modal-header">
+        <p>{'Description'|@translate}</p>
+      </div>
+      <div class="desc-modal-body">
+        <textarea class="sync-textarea" name="comment-modal" id="cat-comment-modal">{$CAT_COMMENT}</textarea>
+        </div>
+      <div class="desc-modal-footer">
+        <p id="desc-modal-close" class="cat-modify-footer-see-out"><span class="icon-resize-small"></span>{'Shrink'|translate}</p>
+      </div>
     </div>
+  </div>
 </div>
 
 <style>
+
 .toggle-comment-option {
   cursor: pointer;
   position: relative;
@@ -247,19 +260,6 @@ str_root = '{'Root'|@translate}';
   border-bottom-right-radius: 10px;
 }
 
-.put-to-root {
-  width: 220px;
-  margin-top: 5px;
-}
-.put-to-root p {
-  margin: 0  auto;
-}
-
-.notClickable {
-  opacity: 0.5;
-  pointer-events: none;
-}
-
 .cat-modify-footer .spinner {
   width: 20px;
   height: 20px;
@@ -267,5 +267,14 @@ str_root = '{'Root'|@translate}';
 
 .warnings {
   display: none;
+}
+
+.directory {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cat-modify-infos .cat-modify-info-content.directory::first-letter {
+    text-transform: none;
 }
 </style>
