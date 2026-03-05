@@ -86,8 +86,14 @@ function ws_addDefaultMethods( $arr )
     array(
       'page' => array('default'=>null,
                       'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE),
-      'uid' => array('default'=>NULL,
-                     'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE),
+      'offset' => array('default'=>0,
+                      'type'=>WS_TYPE_INT|WS_TYPE_POSITIVE),
+      'uid' => array('default'=>NULL, 'type'=>WS_TYPE_ID),
+      'date_min' => array('default'=>null),
+      'date_max' => array('default'=>null),
+      'id' => array('default'=>null, 'type'=>WS_TYPE_ID),
+      'object' => array('default'=>null),
+      'action' => array('default'=>null),
       ),
     'Returns general informations.',
     $ws_functions_root . 'pwg.php',
@@ -517,8 +523,8 @@ function ws_addDefaultMethods( $arr )
     'pwg.images.uploadAsync',
     'ws_images_uploadAsync',
     array(
-        'username' => array(),
-        'password' => array('default'=>null),
+        'username' => array('flags'=>WS_PARAM_OPTIONAL),
+        'password' => array('default'=>null, 'flags'=>WS_PARAM_OPTIONAL),
         'chunk' => array('type'=>WS_TYPE_INT|WS_TYPE_POSITIVE),
         'chunk_sum' => array(),
         'chunks' => array('type'=>WS_TYPE_INT|WS_TYPE_POSITIVE),
@@ -538,7 +544,7 @@ function ws_addDefaultMethods( $arr )
 <br>Start with chunk 0 (zero).
 <br>Set the form encoding to "form-data".
 <br>You can update an existing photo if you define an existing image_id.
-<br>Requires <b>admin</b> credentials.',
+<br>Requires <b>admin</b> credentials: either with username/password or header authorization with api key.',
       $ws_functions_root . 'pwg.images.php',
       array('admin_only'=>true, 'post_only'=>true)
     );
@@ -1435,7 +1441,8 @@ enabled_high, registration_date, registration_date_string, registration_date_sin
       <br> <strong>Types </strong> can be : \'none\', \'picture\', \'high\', \'other\' 
       <br> <strong>Date format</strong> is yyyy-mm-dd
       <br> <strong>display_thumbnail</strong> can be : \'no_display_thumbnail\', \'display_thumbnail_classic\', \'display_thumbnail_hoverbox\'',
-      $ws_functions_root . 'pwg.php'
+      $ws_functions_root . 'pwg.php',
+      array('admin_only'=>true)
     );
 
     $service->addMethod(
@@ -1622,6 +1629,85 @@ enabled_high, registration_date, registration_date_string, registration_date_sin
       'Get all api key for the user in the current session',
       $ws_functions_root . 'pwg.users.php',
       array('admin_only'=>false, 'post_only'=>true)
+    );
+
+    $service->addMethod(
+      'pwg.userComments.getList',
+      'ws_userComments_getList',
+      array(
+        'status' => array(
+          'default' => 'all',
+          'info' => 'must be: all, validated or pending'
+        ),
+        'search' => array(
+          'default' => null,
+          'info' => 'All other parameters are not used during a search.'
+        ),
+        'author_id' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'type' => WS_TYPE_ID,
+        ),
+        'image_id' => array(
+          'flags' => WS_PARAM_OPTIONAL,
+          'type' => WS_TYPE_ID,
+        ),
+        'f_min_date' => array(
+          'default' => null
+        ),
+        'f_max_date' => array(
+          'default' => null
+        ),
+        'page' => array(
+          'default' => 0,
+          'type' => WS_TYPE_INT | WS_TYPE_POSITIVE
+        ),
+        'per_page' => array(
+          'default' => $conf['comments_page_nb_comments'],
+          'type' => WS_TYPE_INT | WS_TYPE_POSITIVE
+        )
+      ),
+      'Get comments',
+      $ws_functions_root . 'pwg.comments.php',
+      array(
+        'admin_only' => true,
+        'post_only' => false
+      )
+    );
+
+    $service->addMethod(
+      'pwg.userComments.delete',
+      'ws_userComments_delete',
+      array(
+        'comment_id' => array(
+          'flags' => WS_PARAM_FORCE_ARRAY,
+          'type' => WS_TYPE_INT | WS_TYPE_POSITIVE,
+        ),
+        'pwg_token' => array(),
+      ),
+      'Delete comments',
+      $ws_functions_root . 'pwg.comments.php',
+      array(
+        'admin_only'=>true,
+        'post_only'=>true
+        )
+    );
+
+    $service->addMethod(
+      'pwg.userComments.validate',
+      'ws_userComments_validate',
+      array(
+        'comment_id' => array(
+          'flags' => WS_PARAM_FORCE_ARRAY,
+          'type' => WS_TYPE_INT | WS_TYPE_POSITIVE,
+        ),
+        'pwg_token' => array(),
+      ),
+      'Validate comments',
+      $ws_functions_root . 'pwg.comments.php',
+      array(
+        'admin_only'=>true,
+        'post_only'=>true
+        )
     );
 }
 
